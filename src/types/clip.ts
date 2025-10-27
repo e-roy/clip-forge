@@ -5,6 +5,7 @@ export interface Clip {
   duration: number;
   format: string;
   codec: string;
+  fileSize: number;
   resolution?: {
     width: number;
     height: number;

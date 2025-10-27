@@ -25,10 +25,12 @@ export interface ClipMeta {
   duration: number;
   format: string;
   codec: string;
+  fileSize: number;
   resolution?: {
     width: number;
     height: number;
   };
+  thumbnail?: string;
 }
 
 // Define the IPC API surface exposed via contextBridge
