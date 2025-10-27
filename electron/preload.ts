@@ -20,6 +20,11 @@ const electronAPI: ElectronAPI = {
   },
 
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
+
+  getDesktopSources: () => ipcRenderer.invoke("get-desktop-sources"),
+
+  writeRecordingFile: (data, filename) =>
+    ipcRenderer.invoke("write-recording-file", data, filename),
 };
 
 contextBridge.exposeInMainWorld("api", electronAPI);

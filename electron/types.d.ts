@@ -37,6 +37,12 @@ export interface ClipMeta {
 }
 
 // Define the IPC API surface exposed via contextBridge
+export interface DesktopSource {
+  id: string;
+  name: string;
+  thumbnail: string;
+}
+
 export interface ElectronAPI {
   openFileDialog: (options?: {
     filters?: Array<{ name: string; extensions: string[] }>;
@@ -51,6 +57,8 @@ export interface ElectronAPI {
   onExportProgress: (callback: (progress: ExportProgress) => void) => void;
   onExportDone: (callback: (result: ExportResult) => void) => void;
   getAppVersion: () => Promise<string>;
+  getDesktopSources: () => Promise<DesktopSource[]>;
+  writeRecordingFile: (data: ArrayBuffer, filename: string) => Promise<string>;
 }
 
 declare global {

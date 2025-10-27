@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, desktopCapturer, ipcMain } from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "fs/promises";
@@ -387,6 +387,36 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
 ipcMain.handle("get-app-version", () => {
   return app.getVersion();
 });
+
+ipcMain.handle("get-desktop-sources", async () => {
+  const sources = await desktopCapturer.getSources({
+    types: ["window", "screen"],
+    thumbnailSize: { width: 300, height: 200 },
+  });
+
+  return sources.map((source) => ({
+    id: source.id,
+    name: source.name,
+    thumbnail: source.thumbnail.toDataURL(),
+  }));
+});
+
+ipcMain.handle(
+  "write-recording-file",
+  async (_, data: ArrayBuffer, filename: string) => {
+    const recordingsDir = path.join(
+      app.getPath("userData"),
+      "ClipForge",
+      "recordings"
+    );
+    await fs.mkdir(recordingsDir, { recursive: true });
+
+    const filePath = path.join(recordingsDir, filename);
+    await fs.writeFile(filePath, Buffer.from(data));
+
+    return filePath;
+  }
+);
 
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
