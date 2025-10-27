@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Toggle } from "@/components/ui/toggle";
@@ -19,8 +19,12 @@ import { PlayIcon } from "lucide-react";
 export function Preview() {
   const { selectedClipId } = useUIStore();
   const { clips } = useClipsStore();
-  const { playheadTime, getActiveItemAtTime, setPlayheadTime } =
-    useTimelineStore();
+  const {
+    playheadTime,
+    getActiveItemAtTime,
+    setPlayheadTime,
+    duration: timelineDuration,
+  } = useTimelineStore();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -34,34 +38,85 @@ export function Preview() {
   const activeClipId = activeItem?.clipId || selectedClipId;
   const selectedClip = clips.find((clip) => clip.id === activeClipId);
 
-  // Track previous clip ID to detect changes
-  const prevClipIdRef = useRef<string | undefined>(undefined);
+  // Track previous timeline item ID to detect changes (not just clip ID)
+  const prevItemIdRef = useRef<string | undefined>(undefined);
+  // Track if we're currently loading a new clip
+  const isLoadingClipRef = useRef(false);
 
-  // Update video source when clip changes
+  // Update video position to match playhead
   useEffect(() => {
-    if (!videoRef.current || !selectedClip) return;
+    if (!videoRef.current) return;
 
     const video = videoRef.current;
 
-    // If clip changed, reload the video
-    if (prevClipIdRef.current !== selectedClip.id) {
-      video.load();
-      setIsPlaying(false);
-      prevClipIdRef.current = selectedClip.id;
+    // If no clip is active, make sure video is paused
+    if (!selectedClip || !activeItem) {
+      if (!video.paused) {
+        video.pause();
+      }
       return;
     }
 
-    // Update video position based on playhead/time only when not playing
-    if (!isPlaying && activeItem) {
-      const timeInClip =
-        playheadTime - activeItem.startTime + activeItem.inTime;
-      // Clamp to the trimmed range (inTime to outTime)
-      const clampedTime = Math.max(
-        activeItem.inTime,
-        Math.min(timeInClip, activeItem.outTime)
-      );
-      setCurrentTime(clampedTime);
-      video.currentTime = clampedTime;
+    // Calculate what time in the clip the playhead is at
+    const timeInClip = playheadTime - activeItem.startTime + activeItem.inTime;
+
+    // Clamp to the trimmed range (inTime to outTime)
+    const clampedTime = Math.max(
+      activeItem.inTime,
+      Math.min(timeInClip, activeItem.outTime)
+    );
+
+    // If timeline item changed (even if same source clip), reposition video
+    if (prevItemIdRef.current !== activeItem.id) {
+      const previousItemId = prevItemIdRef.current;
+      prevItemIdRef.current = activeItem.id;
+      isLoadingClipRef.current = true; // Mark as loading
+
+      // Check if this is the first item or if we need to reposition
+      if (previousItemId === undefined) {
+        // First load - need to wait for metadata
+        video.addEventListener(
+          "loadedmetadata",
+          () => {
+            video.currentTime = clampedTime;
+            setCurrentTime(clampedTime);
+            if (isPlaying) {
+              video.play().catch(console.error);
+            }
+            setTimeout(() => {
+              isLoadingClipRef.current = false;
+            }, 50);
+          },
+          { once: true }
+        );
+      } else {
+        // Switching between timeline items - just reposition
+        video.currentTime = clampedTime;
+        setCurrentTime(clampedTime);
+        if (isPlaying && video.paused) {
+          video.play().catch(console.error);
+        }
+        // Mark as done loading after a brief delay
+        setTimeout(() => {
+          isLoadingClipRef.current = false;
+        }, 50);
+      }
+
+      return;
+    }
+
+    // Only sync video when NOT playing, or if there's a large discrepancy
+    if (!isPlaying) {
+      // When paused, keep video synced with playhead
+      if (Math.abs(video.currentTime - clampedTime) > 0.05) {
+        video.currentTime = clampedTime;
+        setCurrentTime(clampedTime);
+      }
+    } else {
+      // When playing, make sure video is playing
+      if (video.paused) {
+        video.play().catch(console.error);
+      }
     }
   }, [selectedClip, activeItem, playheadTime, isPlaying]);
 
@@ -91,25 +146,50 @@ export function Preview() {
 
   // Update timeline playhead during video playback
   useEffect(() => {
-    if (!isPlaying || !activeItem || !videoRef.current) return;
+    if (!isPlaying) return;
 
     const interval = setInterval(() => {
-      const video = videoRef.current;
-      if (!video || video.paused) return;
+      // Skip syncing if we're loading a new clip
+      if (isLoadingClipRef.current) {
+        return;
+      }
 
-      const timeInClip = video.currentTime;
-      const timelineTime =
-        activeItem.startTime + (timeInClip - activeItem.inTime);
+      if (activeItem && videoRef.current && !videoRef.current.paused) {
+        // When a clip is playing, sync playhead with video position
+        const video = videoRef.current;
+        const timeInClip = video.currentTime;
+        const timelineTime =
+          activeItem.startTime + (timeInClip - activeItem.inTime);
 
-      // Only update if significantly different to avoid infinite loops
-      if (Math.abs(timelineTime - playheadTime) > 0.05) {
-        // Don't mark as manual seek since this is automatic sync
+        // Update playhead to match video
         setPlayheadTime(timelineTime);
+      } else {
+        // In a gap or no video, advance playhead forward at real-time
+        const nextPlayheadTime = playheadTime + 0.1; // Advance by 0.1 seconds per interval (100ms)
+
+        if (nextPlayheadTime >= timelineDuration) {
+          // Reached end of timeline, stop playback
+          setPlayheadTime(timelineDuration);
+          setIsPlaying(false);
+          return;
+        }
+
+        setPlayheadTime(nextPlayheadTime);
       }
     }, 100); // Update every 100ms
 
     return () => clearInterval(interval);
-  }, [isPlaying, activeItem, setPlayheadTime, playheadTime]);
+  }, [isPlaying, playheadTime, timelineDuration, setPlayheadTime, activeItem]);
+
+  // Handle video ended - should not happen in continuous playback mode
+  // But we handle it just in case
+  const handleVideoEnded = useCallback(() => {
+    // Video element ended, but our playhead is handling advancement
+    // Just pause the video element, playhead continues moving
+    if (videoRef.current) {
+      videoRef.current.pause();
+    }
+  }, []);
 
   // Handle duration change
   const handleDurationChange = () => {
@@ -284,7 +364,7 @@ export function Preview() {
           src={videoSrc}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleDurationChange}
-          onEnded={() => setIsPlaying(false)}
+          onEnded={handleVideoEnded}
           onError={(e) => console.error("Video playback error:", e)}
           className={`${
             fitToWindow ? "max-h-full max-w-full" : "h-full w-full"

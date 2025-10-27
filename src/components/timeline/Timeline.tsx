@@ -1,14 +1,31 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import { useTimelineStore } from "@/store/timeline";
+import { useUIStore } from "@/store/ui";
 import { Ruler } from "./Ruler";
 import { Track } from "./Track";
+import { Toggle } from "@/components/ui/toggle";
+import { Grid3x3 } from "lucide-react";
 
-const PIXELS_PER_SECOND = 60; // Scale: 60 pixels = 1 second
 const TRACK_HEIGHT = 60;
+const SNAP_GRID = 0.25; // 0.25 second snap grid
 
 export function Timeline() {
-  const { duration, addItem } = useTimelineStore();
+  const {
+    duration,
+    addItem,
+    pixelsPerSecond,
+    setPixelsPerSecond,
+    selectedItemId,
+    selectItem,
+    removeItem,
+    splitItemAtPlayhead,
+    playheadTime,
+    rippleDelete,
+    toggleRippleDelete,
+  } = useTimelineStore();
+  const { showGrid, toggleGrid, snapToGrid, toggleSnapToGrid } = useUIStore();
   const [dragOver, setDragOver] = useState(false);
+  const timelineRef = useRef<HTMLDivElement>(null);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -37,18 +54,120 @@ export function Timeline() {
     [addItem]
   );
 
-  const width = Math.max(duration * PIXELS_PER_SECOND, 800);
+  // Keyboard handlers
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Prevent default if we're handling the key
+      if (
+        e.key === "s" ||
+        e.key === "S" ||
+        e.key === "Delete" ||
+        e.key === "Backspace"
+      ) {
+        e.preventDefault();
+      }
+
+      // Split on S
+      if ((e.key === "s" || e.key === "S") && selectedItemId) {
+        splitItemAtPlayhead(selectedItemId, playheadTime);
+      }
+
+      // Delete on Delete/Backspace
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedItemId) {
+        removeItem(selectedItemId);
+      }
+
+      // Zoom controls (Ctrl/Cmd + and -)
+      if ((e.ctrlKey || e.metaKey) && e.key === "+") {
+        e.preventDefault();
+        setPixelsPerSecond(pixelsPerSecond + 20);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "-") {
+        e.preventDefault();
+        setPixelsPerSecond(pixelsPerSecond - 20);
+      }
+
+      // Zoom controls with = key (since + requires shift)
+      if ((e.ctrlKey || e.metaKey) && e.key === "=") {
+        e.preventDefault();
+        setPixelsPerSecond(pixelsPerSecond + 20);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    selectedItemId,
+    playheadTime,
+    splitItemAtPlayhead,
+    removeItem,
+    pixelsPerSecond,
+    setPixelsPerSecond,
+  ]);
+
+  // Click outside to deselect
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        timelineRef.current &&
+        !timelineRef.current.contains(e.target as Node)
+      ) {
+        selectItem(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [selectItem]);
+
+  const width = Math.max(duration * pixelsPerSecond, 800);
 
   return (
     <div
+      ref={timelineRef}
       className="flex h-full flex-col bg-background relative"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      tabIndex={0}
     >
       {/* Header info */}
-      <div className="flex h-8 items-center border-b border-border px-2 text-xs text-muted-foreground">
-        <div className="w-20">Track 1</div>
+      <div className="flex h-8 items-center justify-between border-b border-border px-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <div className="w-20">Track 1</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Toggle
+            pressed={showGrid}
+            onPressedChange={toggleGrid}
+            size="sm"
+            variant="outline"
+            title="Show/hide grid lines"
+          >
+            <Grid3x3 className="h-3 w-3" />
+          </Toggle>
+          <Toggle
+            pressed={snapToGrid}
+            onPressedChange={toggleSnapToGrid}
+            size="sm"
+            variant="outline"
+            title="Snap to grid when dragging"
+          >
+            Snap
+          </Toggle>
+          <Toggle
+            pressed={rippleDelete}
+            onPressedChange={toggleRippleDelete}
+            size="sm"
+            variant="outline"
+            title="Ripple delete mode"
+          >
+            Ripple
+          </Toggle>
+          <div className="text-xs">
+            Zoom: {(pixelsPerSecond / 60).toFixed(1)}x
+          </div>
+        </div>
       </div>
 
       {/* Scrollable content */}
@@ -56,14 +175,19 @@ export function Timeline() {
         <div style={{ width: `${width}px`, minWidth: "100%" }}>
           {/* Ruler */}
           <div className="sticky top-0 z-10">
-            <Ruler width={width} pixelsPerSecond={PIXELS_PER_SECOND} />
+            <Ruler
+              width={width}
+              pixelsPerSecond={pixelsPerSecond}
+              snapGrid={SNAP_GRID}
+            />
           </div>
 
           {/* Track */}
           <Track
             trackId={1}
-            pixelsPerSecond={PIXELS_PER_SECOND}
+            pixelsPerSecond={pixelsPerSecond}
             height={TRACK_HEIGHT}
+            snapGrid={SNAP_GRID}
           />
         </div>
       </div>

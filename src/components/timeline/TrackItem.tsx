@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useClipsStore } from "@/store/clips";
 import { useTimelineStore } from "@/store/timeline";
+import { useUIStore } from "@/store/ui";
 import type { TimelineItem } from "@/types/timeline";
 import {
   Popover,
@@ -14,23 +15,84 @@ import { Label } from "@/components/ui/label";
 interface TrackItemProps {
   item: TimelineItem;
   pixelsPerSecond: number;
+  isSelected: boolean;
+  snapGrid: number;
 }
 
-export function TrackItem({ item, pixelsPerSecond }: TrackItemProps) {
+export function TrackItem({
+  item,
+  pixelsPerSecond,
+  isSelected,
+  snapGrid,
+}: TrackItemProps) {
   const { clips } = useClipsStore();
-  const { updateItem } = useTimelineStore();
+  const { updateItem, selectItem, getItemsForTrack } = useTimelineStore();
+  const { snapToGrid: snapEnabled } = useUIStore();
   const clip = clips.find((c) => c.id === item.clipId);
+  const items = getItemsForTrack(item.trackId);
 
   const [isDraggingLeft, setIsDraggingLeft] = useState(false);
   const [isDraggingRight, setIsDraggingRight] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [dragStartX, setDragStartX] = useState(0);
   const [dragStartInTime, setDragStartInTime] = useState(0);
   const [dragStartOutTime, setDragStartOutTime] = useState(0);
+  const [dragStartTime, setDragStartTime] = useState(0);
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   const [inTimeValue, setInTimeValue] = useState(item.inTime.toFixed(2));
   const [outTimeValue, setOutTimeValue] = useState(item.outTime.toFixed(2));
 
   const handleRef = useRef<HTMLDivElement>(null);
+
+  // Helper function to snap to grid
+  const snapToGrid = useCallback(
+    (time: number): number => {
+      return Math.round(time / snapGrid) * snapGrid;
+    },
+    [snapGrid]
+  );
+
+  // Helper function to find nearest edge to snap to
+  const findNearestSnapEdge = useCallback(
+    (targetTime: number, excludedItemId: string): number | null => {
+      let nearestDistance = Infinity;
+      let nearestTime: number | null = null;
+
+      for (const otherItem of items) {
+        if (otherItem.id === excludedItemId) continue;
+
+        const distanceToStart = Math.abs(targetTime - otherItem.startTime);
+        const distanceToEnd = Math.abs(targetTime - otherItem.endTime);
+
+        if (distanceToStart < nearestDistance) {
+          nearestDistance = distanceToStart;
+          nearestTime = otherItem.startTime;
+        }
+        if (distanceToEnd < nearestDistance) {
+          nearestDistance = distanceToEnd;
+          nearestTime = otherItem.endTime;
+        }
+      }
+
+      // Also consider snapping to grid
+      const gridSnap = snapToGrid(targetTime);
+
+      // Use nearest edge if within snap threshold
+      const snapThreshold = snapGrid;
+      if (
+        nearestTime !== null &&
+        Math.abs(targetTime - nearestTime) <= snapThreshold
+      ) {
+        return nearestTime;
+      }
+      if (Math.abs(targetTime - gridSnap) <= snapThreshold) {
+        return gridSnap;
+      }
+
+      return null;
+    },
+    [items, snapGrid, snapToGrid]
+  );
 
   // Calculate display dimensions
   const trimmedDuration = item.outTime - item.inTime;
@@ -48,9 +110,30 @@ export function TrackItem({ item, pixelsPerSecond }: TrackItemProps) {
     return clip.name;
   }, [clip]);
 
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    selectItem(item.id);
+  };
+
   const handleDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsPopoverOpen(true);
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    // Don't start dragging if clicking on trim handles or if a drag is already happening
+    const target = e.target as HTMLElement;
+    if (
+      target.closest(".cursor-ew-resize") ||
+      isDraggingLeft ||
+      isDraggingRight
+    ) {
+      return;
+    }
+    setIsDragging(true);
+    setDragStartX(e.clientX);
+    setDragStartTime(item.startTime);
+    e.stopPropagation();
   };
 
   const handleApply = () => {
@@ -74,7 +157,58 @@ export function TrackItem({ item, pixelsPerSecond }: TrackItemProps) {
     setIsPopoverOpen(false);
   };
 
-  // Handle mouse move for dragging
+  // Handle dragging items (moving on timeline)
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaX = e.clientX - dragStartX;
+      const deltaTime = deltaX / pixelsPerSecond;
+      const newStartTime = dragStartTime + deltaTime;
+
+      let finalStartTime: number;
+
+      if (snapEnabled) {
+        // Snap to nearby edges or grid
+        const snapTime = findNearestSnapEdge(newStartTime, item.id);
+        finalStartTime = snapTime ?? Math.max(0, newStartTime);
+      } else {
+        // No snapping, just move freely
+        finalStartTime = Math.max(0, newStartTime);
+      }
+
+      const duration = item.endTime - item.startTime;
+      const newEndTime = finalStartTime + duration;
+
+      updateItem(item.id, {
+        startTime: finalStartTime,
+        endTime: newEndTime,
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [
+    isDragging,
+    dragStartX,
+    dragStartTime,
+    item,
+    pixelsPerSecond,
+    updateItem,
+    findNearestSnapEdge,
+    snapEnabled,
+  ]);
+
+  // Handle mouse move for trimming
   useEffect(() => {
     if (!isDraggingLeft && !isDraggingRight) return;
 
@@ -155,11 +289,17 @@ export function TrackItem({ item, pixelsPerSecond }: TrackItemProps) {
     <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
       <PopoverTrigger asChild>
         <div
-          className="group absolute flex h-full items-center border border-primary bg-primary/10 cursor-pointer"
+          className={`group absolute flex h-full items-center cursor-move select-none transition-opacity ${
+            isSelected
+              ? "border-2 border-accent bg-accent/20"
+              : "border border-primary bg-primary/10"
+          } ${isDragging ? "opacity-80 shadow-lg" : ""}`}
           style={{
             width: `${width}px`,
             left: `${left}px`,
           }}
+          onClick={handleClick}
+          onMouseDown={handleMouseDown}
           onDoubleClick={handleDoubleClick}
         >
           {/* Left trim handle */}

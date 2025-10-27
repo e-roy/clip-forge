@@ -6,12 +6,19 @@ interface TimelineState {
   // Project settings
   fps: number;
   duration: number;
+  pixelsPerSecond: number;
 
   // Playhead position in seconds
   playheadTime: number;
 
   // Timeline items
   items: TimelineItem[];
+
+  // Selection state
+  selectedItemId: string | null;
+
+  // Ripple mode
+  rippleDelete: boolean;
 
   // Track management
   tracks: Array<{
@@ -24,12 +31,17 @@ interface TimelineState {
 
   // Actions
   setPlayheadTime: (time: number) => void;
+  setPixelsPerSecond: (pps: number) => void;
   addItem: (clipId: string) => void;
-  removeItem: (itemId: string) => void;
+  removeItem: (itemId: string, ripple?: boolean) => void;
   updateItem: (itemId: string, updates: Partial<TimelineItem>) => void;
   getItemsForTrack: (trackId: number) => TimelineItem[];
   getActiveItemAtTime: (time: number, trackId: number) => TimelineItem | null;
+  selectItem: (itemId: string | null) => void;
+  splitItemAtPlayhead: (itemId: string, playheadTime: number) => void;
+  getNextItemAfterTime: (time: number, trackId: number) => TimelineItem | null;
   reorderItems: (itemIds: string[]) => void;
+  toggleRippleDelete: () => void;
 }
 
 export const useTimelineStore = create<TimelineState>((set, get) => {
@@ -51,8 +63,11 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
   return {
     fps: 30,
     duration: 0,
+    pixelsPerSecond: 60,
     playheadTime: 0,
     items: [],
+    selectedItemId: null,
+    rippleDelete: false,
     tracks: [initialTrack],
 
     setPlayheadTime: (time: number) => {
@@ -88,17 +103,107 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
       });
     },
 
-    removeItem: (itemId: string) => {
+    setPixelsPerSecond: (pps: number) => {
+      set({ pixelsPerSecond: Math.max(10, Math.min(pps, 240)) });
+    },
+
+    removeItem: (itemId: string, ripple = false) => {
+      const { items, rippleDelete, selectedItemId } = get();
+      const itemToRemove = items.find((item) => item.id === itemId);
+      if (!itemToRemove) return;
+
+      const shouldRipple = ripple || rippleDelete;
+
+      if (shouldRipple) {
+        // Calculate gap to close
+        const gapEnd = itemToRemove.endTime;
+        const gapDuration = itemToRemove.endTime - itemToRemove.startTime;
+
+        // Shift all items after this one to the left
+        const remainingItems = items
+          .filter((item) => item.id !== itemId)
+          .map((item) => {
+            if (item.startTime >= gapEnd) {
+              return {
+                ...item,
+                startTime: item.startTime - gapDuration,
+                endTime: item.endTime - gapDuration,
+              };
+            }
+            return item;
+          });
+
+        // Recalculate duration
+        const newDuration =
+          remainingItems.length > 0
+            ? Math.max(...remainingItems.map((item) => item.endTime))
+            : 0;
+
+        set({
+          items: remainingItems,
+          duration: newDuration,
+          selectedItemId: selectedItemId === itemId ? null : selectedItemId,
+        });
+      } else {
+        // Just remove the item
+        const remainingItems = items.filter((item) => item.id !== itemId);
+
+        const newDuration =
+          remainingItems.length > 0
+            ? Math.max(...remainingItems.map((item) => item.endTime))
+            : 0;
+
+        set({
+          items: remainingItems,
+          duration: newDuration,
+          selectedItemId: selectedItemId === itemId ? null : selectedItemId,
+        });
+      }
+    },
+
+    selectItem: (itemId: string | null) => {
+      set({ selectedItemId: itemId });
+    },
+
+    splitItemAtPlayhead: (itemId: string, playheadTime: number) => {
       const { items } = get();
-      const remainingItems = items.filter((item) => item.id !== itemId);
+      const item = items.find((i) => i.id === itemId);
+      if (!item) return;
 
-      // Recalculate duration from remaining items
-      const newDuration =
-        remainingItems.length > 0
-          ? Math.max(...remainingItems.map((item) => item.endTime))
-          : 0;
+      // Check if playhead is within item bounds
+      if (playheadTime < item.startTime || playheadTime >= item.endTime) {
+        return;
+      }
 
-      set({ items: remainingItems, duration: newDuration });
+      // Calculate relative time within the clip
+      const clipTimeAtSplit = item.inTime + (playheadTime - item.startTime);
+
+      // Create first half (keep existing start)
+      const firstHalf: TimelineItem = {
+        ...item,
+        endTime: playheadTime,
+        outTime: clipTimeAtSplit,
+      };
+
+      // Create second half (new item)
+      const secondHalf: TimelineItem = {
+        ...item,
+        id: generateItemId(),
+        startTime: playheadTime,
+        inTime: clipTimeAtSplit,
+      };
+
+      // Replace original item with the two halves
+      const newItems = items
+        .filter((i) => i.id !== itemId)
+        .concat(firstHalf, secondHalf);
+
+      set({ items: newItems, selectedItemId: secondHalf.id });
+    },
+
+    toggleRippleDelete: () => {
+      const { rippleDelete } = get();
+      set({ rippleDelete: !rippleDelete });
     },
 
     updateItem: (itemId: string, updates: Partial<TimelineItem>) => {
@@ -124,6 +229,15 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
           (item) => time >= item.startTime && time < item.endTime
         ) || null
       );
+    },
+
+    getNextItemAfterTime: (time: number, trackId: number) => {
+      const { items } = get();
+      const trackItems = items
+        .filter((item) => item.trackId === trackId)
+        .sort((a, b) => a.startTime - b.startTime);
+
+      return trackItems.find((item) => item.startTime > time) || null;
     },
 
     reorderItems: (_itemIds: string[]) => {

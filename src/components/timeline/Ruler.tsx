@@ -1,13 +1,16 @@
 import { useCallback } from "react";
 import { useTimelineStore } from "@/store/timeline";
+import { useUIStore } from "@/store/ui";
 
 interface RulerProps {
   width: number;
   pixelsPerSecond: number;
+  snapGrid: number;
 }
 
-export function Ruler({ pixelsPerSecond }: RulerProps) {
+export function Ruler({ pixelsPerSecond, snapGrid }: RulerProps) {
   const { playheadTime, duration, setPlayheadTime } = useTimelineStore();
+  const { showGrid } = useUIStore();
 
   // Calculate major tick intervals (every second, 5 seconds, etc.)
   const getTickInterval = () => {
@@ -19,9 +22,15 @@ export function Ruler({ pixelsPerSecond }: RulerProps) {
 
   const tickInterval = getTickInterval();
   const ticks: number[] = [];
+  const gridLines: number[] = [];
 
   for (let time = 0; time <= duration; time += tickInterval) {
     ticks.push(time);
+  }
+
+  // Add grid lines for snapping
+  for (let time = 0; time <= duration; time += snapGrid) {
+    gridLines.push(time);
   }
 
   const handleClick = useCallback(
@@ -48,11 +57,21 @@ export function Ruler({ pixelsPerSecond }: RulerProps) {
       className="relative h-8 cursor-pointer select-none bg-muted"
       onClick={handleClick}
     >
+      {/* Grid lines */}
+      {showGrid &&
+        gridLines.map((time) => (
+          <div
+            key={`grid-${time}`}
+            className="absolute h-full border-l border-border opacity-30"
+            style={{ left: `${time * pixelsPerSecond}px` }}
+          />
+        ))}
+
       {/* Time ticks */}
       {ticks.map((time) => (
         <div
           key={time}
-          className="absolute h-full border-l border-border"
+          className="absolute h-full border-l border-border z-10 bg-muted"
           style={{ left: `${time * pixelsPerSecond}px` }}
         >
           <div className="ml-1 mt-1 text-xs text-muted-foreground">
