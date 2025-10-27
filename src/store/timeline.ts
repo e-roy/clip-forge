@@ -90,8 +90,15 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
 
     removeItem: (itemId: string) => {
       const { items } = get();
-      set({ items: items.filter((item) => item.id !== itemId) });
-      // TODO: Recalculate duration after removal
+      const remainingItems = items.filter((item) => item.id !== itemId);
+
+      // Recalculate duration from remaining items
+      const newDuration =
+        remainingItems.length > 0
+          ? Math.max(...remainingItems.map((item) => item.endTime))
+          : 0;
+
+      set({ items: remainingItems, duration: newDuration });
     },
 
     updateItem: (itemId: string, updates: Partial<TimelineItem>) => {

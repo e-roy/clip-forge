@@ -19,7 +19,8 @@ import { PlayIcon } from "lucide-react";
 export function Preview() {
   const { selectedClipId } = useUIStore();
   const { clips } = useClipsStore();
-  const { playheadTime, getActiveItemAtTime } = useTimelineStore();
+  const { playheadTime, getActiveItemAtTime, setPlayheadTime } =
+    useTimelineStore();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -33,29 +34,36 @@ export function Preview() {
   const activeClipId = activeItem?.clipId || selectedClipId;
   const selectedClip = clips.find((clip) => clip.id === activeClipId);
 
+  // Track previous clip ID to detect changes
+  const prevClipIdRef = useRef<string | undefined>(undefined);
+
   // Update video source when clip changes
   useEffect(() => {
-    if (videoRef.current && selectedClip) {
-      videoRef.current.load();
-      setIsPlaying(false);
+    if (!videoRef.current || !selectedClip) return;
 
-      // If we have an active item, calculate the time within the clip
-      if (activeItem) {
-        const timeInClip =
-          playheadTime - activeItem.startTime + activeItem.inTime;
-        // Clamp to the trimmed range (inTime to outTime)
-        const clampedTime = Math.max(
-          activeItem.inTime,
-          Math.min(timeInClip, activeItem.outTime)
-        );
-        setCurrentTime(clampedTime);
-        videoRef.current.currentTime = clampedTime;
-      } else {
-        setCurrentTime(0);
-        videoRef.current.currentTime = 0;
-      }
+    const video = videoRef.current;
+
+    // If clip changed, reload the video
+    if (prevClipIdRef.current !== selectedClip.id) {
+      video.load();
+      setIsPlaying(false);
+      prevClipIdRef.current = selectedClip.id;
+      return;
     }
-  }, [activeClipId, selectedClip, activeItem, playheadTime]);
+
+    // Update video position based on playhead/time only when not playing
+    if (!isPlaying && activeItem) {
+      const timeInClip =
+        playheadTime - activeItem.startTime + activeItem.inTime;
+      // Clamp to the trimmed range (inTime to outTime)
+      const clampedTime = Math.max(
+        activeItem.inTime,
+        Math.min(timeInClip, activeItem.outTime)
+      );
+      setCurrentTime(clampedTime);
+      video.currentTime = clampedTime;
+    }
+  }, [selectedClip, activeItem, playheadTime, isPlaying]);
 
   // Sync state with video element play/pause events
   useEffect(() => {
@@ -74,15 +82,34 @@ export function Preview() {
     };
   }, [activeClipId]);
 
-  // Handle time updates
+  // Handle time updates from video element
   const handleTimeUpdate = () => {
     if (videoRef.current && selectedClip) {
-      // Don't update if we have an active item (playhead controls it)
-      if (!activeItem) {
-        setCurrentTime(videoRef.current.currentTime);
-      }
+      setCurrentTime(videoRef.current.currentTime);
     }
   };
+
+  // Update timeline playhead during video playback
+  useEffect(() => {
+    if (!isPlaying || !activeItem || !videoRef.current) return;
+
+    const interval = setInterval(() => {
+      const video = videoRef.current;
+      if (!video || video.paused) return;
+
+      const timeInClip = video.currentTime;
+      const timelineTime =
+        activeItem.startTime + (timeInClip - activeItem.inTime);
+
+      // Only update if significantly different to avoid infinite loops
+      if (Math.abs(timelineTime - playheadTime) > 0.05) {
+        // Don't mark as manual seek since this is automatic sync
+        setPlayheadTime(timelineTime);
+      }
+    }, 100); // Update every 100ms
+
+    return () => clearInterval(interval);
+  }, [isPlaying, activeItem, setPlayheadTime, playheadTime]);
 
   // Handle duration change
   const handleDurationChange = () => {

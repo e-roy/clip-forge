@@ -27,8 +27,49 @@ const setupFfmpeg = () => {
     const ffmpegInstaller = require("@ffmpeg-installer/ffmpeg");
     const ffprobeInstaller = require("@ffprobe-installer/ffprobe");
 
-    const ffmpegPath = ffmpegInstaller.path;
-    const ffprobePath = ffprobeInstaller.path;
+    let ffmpegPath = ffmpegInstaller.path;
+    let ffprobePath = ffprobeInstaller.path;
+
+    // In production (packaged app), check if paths need adjustment
+    // Check if running from asar archive (production)
+    const isProduction = !app.isPackaged === false;
+
+    if (isProduction && !ffmpegPath.includes("app.asar")) {
+      // In packaged builds, the binaries are in extraResources
+      const resourcesPath = process.resourcesPath || app.getAppPath();
+      const potentialFfmpegPath = path.join(resourcesPath, "ffmpeg");
+      const potentialFfprobePath = path.join(resourcesPath, "ffprobe");
+
+      // Check if the paths exist in extraResources first
+      try {
+        const fsSync = require("fs");
+        if (fsSync.existsSync(potentialFfmpegPath)) {
+          // Find the actual executable in the directory
+          const ffmpegFiles = fsSync.readdirSync(potentialFfmpegPath);
+          const ffmpegExe = ffmpegFiles.find(
+            (f: string) => f === "ffmpeg.exe" || f === "ffmpeg"
+          );
+          if (ffmpegExe) {
+            ffmpegPath = path.join(potentialFfmpegPath, ffmpegExe);
+          }
+        }
+
+        if (fsSync.existsSync(potentialFfprobePath)) {
+          const ffprobeFiles = fsSync.readdirSync(potentialFfprobePath);
+          const ffprobeExe = ffprobeFiles.find(
+            (f: string) => f === "ffprobe.exe" || f === "ffprobe"
+          );
+          if (ffprobeExe) {
+            ffprobePath = path.join(potentialFfprobePath, ffprobeExe);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to locate FFmpeg in extraResources:", err);
+      }
+    }
+
+    console.log("FFmpeg path:", ffmpegPath);
+    console.log("FFprobe path:", ffprobePath);
 
     ffmpeg.setFfmpegPath(ffmpegPath);
     ffmpeg.setFfprobePath(ffprobePath);
