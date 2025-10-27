@@ -62,6 +62,24 @@ function createWindow() {
   } else {
     win.loadFile(path.join(RENDERER_DIST, "index.html"));
   }
+
+  // Add keyboard shortcuts for development
+  win.webContents.on("before-input-event", (event, input) => {
+    // Ctrl+R or Cmd+R: Reload the window
+    if ((input.control || input.meta) && input.key.toLowerCase() === "r") {
+      event.preventDefault();
+      win?.reload();
+    }
+    // Ctrl+Shift+R or Cmd+Shift+R: Hard reload
+    if (
+      (input.control || input.meta) &&
+      input.shift &&
+      input.key.toLowerCase() === "r"
+    ) {
+      event.preventDefault();
+      win?.webContents.reloadIgnoringCache();
+    }
+  });
 }
 
 // IPC Handlers

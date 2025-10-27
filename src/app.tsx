@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { FilmIcon } from "lucide-react";
 import { Library } from "@/components/library/Library";
 import { Preview } from "@/components/preview/Preview";
+import { Timeline } from "@/components/timeline/Timeline";
 
 function App() {
   const [projectName] = useState("Untitled Project");
@@ -34,12 +35,8 @@ function App() {
       </div>
 
       {/* Bottom - Timeline */}
-      <div className="h-48 border-t border-border">
-        <div className="flex h-full items-center justify-center">
-          <div className="text-center">
-            <p className="text-sm text-muted-foreground">Timeline</p>
-          </div>
-        </div>
+      <div className="h-64 border-t border-border overflow-hidden">
+        <Timeline />
       </div>
     </div>
   );

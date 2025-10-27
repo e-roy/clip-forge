@@ -26,6 +26,11 @@ export function ClipCard({
 
   return (
     <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "copy";
+        e.dataTransfer.setData("text/plain", clip.id);
+      }}
       onClick={onSelect}
       className={`group relative cursor-pointer rounded-lg border p-2 transition-colors ${
         isSelected

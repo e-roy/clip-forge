@@ -15,3 +15,8 @@ export interface TimelineTrack {
   muted: boolean;
   volume: number;
 }
+
+export interface Project {
+  fps: number;
+  duration: number;
+}

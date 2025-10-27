@@ -13,11 +13,13 @@ import {
 } from "lucide-react";
 import { useUIStore } from "@/store/ui";
 import { useClipsStore } from "@/store/clips";
+import { useTimelineStore } from "@/store/timeline";
 import { PlayIcon } from "lucide-react";
 
 export function Preview() {
   const { selectedClipId } = useUIStore();
   const { clips } = useClipsStore();
+  const { playheadTime, getActiveItemAtTime } = useTimelineStore();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -26,16 +28,33 @@ export function Preview() {
   const [isMuted, setIsMuted] = useState(false);
   const [fitToWindow, setFitToWindow] = useState(true);
 
-  const selectedClip = clips.find((clip) => clip.id === selectedClipId);
+  // Get the active item from the timeline or the selected clip
+  const activeItem = getActiveItemAtTime(playheadTime, 1);
+  const activeClipId = activeItem?.clipId || selectedClipId;
+  const selectedClip = clips.find((clip) => clip.id === activeClipId);
 
   // Update video source when clip changes
   useEffect(() => {
-    if (videoRef.current) {
+    if (videoRef.current && selectedClip) {
       videoRef.current.load();
       setIsPlaying(false);
-      setCurrentTime(0);
+
+      // If we have an active item, calculate the time within the clip
+      if (activeItem) {
+        const timeInClip =
+          playheadTime - activeItem.startTime + activeItem.inTime;
+        const clampedTime = Math.max(
+          0,
+          Math.min(timeInClip, selectedClip.duration)
+        );
+        setCurrentTime(clampedTime);
+        videoRef.current.currentTime = clampedTime;
+      } else {
+        setCurrentTime(0);
+        videoRef.current.currentTime = 0;
+      }
     }
-  }, [selectedClipId]);
+  }, [activeClipId, selectedClip, activeItem, playheadTime]);
 
   // Sync state with video element play/pause events
   useEffect(() => {
@@ -52,12 +71,15 @@ export function Preview() {
       video.removeEventListener("play", handlePlay);
       video.removeEventListener("pause", handlePause);
     };
-  }, [selectedClipId]);
+  }, [activeClipId]);
 
   // Handle time updates
   const handleTimeUpdate = () => {
-    if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
+    if (videoRef.current && selectedClip) {
+      // Don't update if we have an active item (playhead controls it)
+      if (!activeItem) {
+        setCurrentTime(videoRef.current.currentTime);
+      }
     }
   };
 
