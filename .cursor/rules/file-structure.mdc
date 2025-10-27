@@ -1,0 +1,105 @@
+---
+alwaysApply: true
+---
+
+# ClipForge — Cursor Rule File
+
+## Description & Goal
+
+Desktop video editor (Electron + React) to **import clips**, arrange on a **timeline**, **preview**, and **export MP4**. MVP loop: **Import → Arrange/Trim → Export**. Add screen/webcam recording after MVP.
+
+## Tech Stack
+
+- **Electron** (main/preload)
+- **React + TypeScript (strict)**, **Vite**, **TailwindCSS**, **shadcn/ui**
+- **State:** Zustand
+- **Media:** FFmpeg via `fluent-ffmpeg` + `@ffmpeg-installer/ffmpeg` (and ffprobe)
+- **Packaging:** `electron-builder`
+- **Optional:** `keytar` for secure tokens
+
+## File Structure
+
+```text
+clipforge/
+  package.json
+  vite.config.ts
+  tsconfig.json
+  tailwind.config.ts
+  postcss.config.js
+  electron/
+    main.ts                 # app lifecycle, BrowserWindow, IPC routing
+    preload.ts              # contextBridge: window.api (typed)
+    types.d.ts              # shared IPC/types surfaced to renderer
+  src/
+    app.tsx                 # app shell (sidebar, preview, timeline, topbar)
+    main.tsx                # React entry
+    styles/
+      index.css             # Tailwind entry
+    types/                  # all shared TS types (no `any`)
+      clip.ts
+      timeline.ts
+      export.ts
+      ipc.ts
+    lib/                    # helper functions only
+      ffmpeg.ts             # command builders, paths
+      time.ts               # time/ticks/fps helpers
+      files.ts              # safe path ops
+      validation.ts
+    store/                  # Zustand slices
+      clips.ts
+      timeline.ts
+      ui.ts
+      export.ts
+    components/
+      ui/                   # shadcn generated components
+      library/              # media library pane
+      timeline/             # track, item, ruler, playhead
+      preview/              # <video> player + overlay layer
+      recorder/             # screen/webcam controls
+      export/               # export dialog + progress
+    features/
+      import/               # drag-drop, file picker integration
+      recording/            # MediaRecorder wiring (renderer)
+      metadata/             # probing pipeline glue
+    assets/                 # static icons (no large media)
+```
+
+## IPC Surface (typed via `electron/types.d.ts`)
+
+- `window.api.openFileDialog(options): Promise<string[]>`
+- `window.api.getMediaInfo(paths: string[]): Promise<ClipMeta[]>`
+- `window.api.exportVideo(payload: ExportJob): Promise<{ jobId: string }>`
+- `window.api.onExportProgress(cb: (p: ExportProgress) => void): void`
+- `window.api.onExportDone(cb: (r: ExportResult) => void): void`
+- `window.api.getAppVersion(): Promise<string>`
+
+## Rules & Constraints
+
+- Assume a **dev server is already running**; do **not** start or script a dev server.
+- **Do not use `any`.** TS strict; define all types in `src/types/`.
+- **Do not create new Markdown files.**
+- Keep files **under 350 lines** unless absolutely necessary; refactor into helpers/components.
+- Helpers go in `src/lib/`; UI-only code in `src/components/`.
+- Renderer is sandboxed: **no direct `fs`/`child_process`**; use **typed IPC** only.
+- **Ask questions if unsure** about requirements, naming, or behavior.
+
+## Coding Standards
+
+- TS strict, no implicit any; prefer discriminated unions and exhaustive `switch`.
+- IPC responses shape: `{ ok: boolean; data?: T; error?: string }`.
+- Helpers are pure and side-effect free.
+- Accessibility: labeled controls; keyboard shortcuts mirrored in menus/palette.
+
+## MVP Acceptance
+
+- Launches; imports MP4/MOV/WebM; shows metadata + thumbnails.
+- Preview plays selected clip.
+- Timeline accepts clips; supports basic trim (in/out).
+- Export concatenates to MP4 (H.264/AAC) with progress UI.
+- Packaged build runs (`electron-builder`).
+
+## Notes
+
+- Thumbnails/temp under `app.getPath('userData')/ClipForge`.
+- FFmpeg/ffprobe paths resolved from `@ffmpeg-installer/ffmpeg` in **main**.
+- Keep preview adjustments lightweight (CSS/WebAudio); do full fidelity in export filtergraphs.
