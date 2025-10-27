@@ -1,4 +1,9 @@
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { XIcon } from "lucide-react";
 import type { Clip } from "@/types/clip";
 
@@ -32,34 +37,50 @@ export function ClipCard({
         e.dataTransfer.setData("text/plain", clip.id);
       }}
       onClick={onSelect}
-      className={`group relative cursor-pointer rounded-lg border p-2 transition-colors ${
+      className={`group relative w-full cursor-pointer rounded-lg border p-2 transition-colors ${
         isSelected
           ? "border-primary bg-accent"
           : "border-border bg-card hover:bg-accent"
       }`}
+      style={{ maxWidth: "100%", boxSizing: "border-box" }}
     >
-      <div className="flex gap-2">
+      <div className="grid grid-cols-[80px_1fr] gap-2">
         {clip.thumbnail ? (
           <img
             src={clip.thumbnail}
             alt={clip.name}
-            className="h-16 w-28 rounded object-cover"
+            className="h-16 w-20 rounded object-cover"
           />
         ) : (
-          <div className="flex h-16 w-28 items-center justify-center rounded bg-muted text-xs text-muted-foreground">
-            No thumbnail
+          <div className="flex h-16 w-20 items-center justify-center rounded bg-muted text-xs text-muted-foreground text-center leading-tight">
+            No thumb
           </div>
         )}
-        <div className="flex-1 space-y-1">
-          <p className="truncate text-sm font-medium">{clip.name}</p>
+        <div
+          className="space-y-1 pr-7"
+          style={{
+            overflow: "hidden",
+            minWidth: 0,
+          }}
+        >
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="truncate text-sm font-medium" title={clip.name}>
+                {clip.name}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="max-w-xs wrap-break-word">{clip.name}</p>
+            </TooltipContent>
+          </Tooltip>
           <div className="space-y-0.5 text-xs text-muted-foreground">
-            <p>{formatDuration(clip.duration)}</p>
+            <p className="truncate">{formatDuration(clip.duration)}</p>
             {clip.resolution && (
-              <p>
+              <p className="truncate">
                 {clip.resolution.width}×{clip.resolution.height}
               </p>
             )}
-            <p>{formatFileSize(clip.fileSize)}</p>
+            <p className="truncate">{formatFileSize(clip.fileSize)}</p>
           </div>
         </div>
       </div>

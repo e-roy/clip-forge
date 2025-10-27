@@ -9,6 +9,11 @@ import { ExportProgress } from "@/components/export/ExportProgress";
 import { Recorder } from "@/components/recorder/Recorder";
 import { useTimelineStore } from "@/store/timeline";
 import { useClipsStore } from "@/store/clips";
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable";
 
 function App() {
   const [projectName] = useState("Untitled Project");
@@ -110,23 +115,40 @@ function App() {
         </div>
       </div>
 
-      {/* Main Content Area */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar - Library */}
-        <div className="w-64 border-r border-border">
-          <Library />
-        </div>
+      {/* Main Content Area with Resizable Panels */}
+      <ResizablePanelGroup
+        direction="vertical"
+        className="flex-1 overflow-hidden"
+      >
+        <ResizablePanel defaultSize={70}>
+          <ResizablePanelGroup direction="horizontal" className="h-full">
+            {/* Left Sidebar - Library */}
+            <ResizablePanel defaultSize={20} minSize={15} maxSize={40}>
+              <div className="h-full border-r border-border">
+                <Library />
+              </div>
+            </ResizablePanel>
 
-        {/* Center - Preview */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <Preview />
-        </div>
-      </div>
+            <ResizableHandle />
 
-      {/* Bottom - Timeline */}
-      <div className="h-64 border-t border-border overflow-hidden">
-        <Timeline />
-      </div>
+            {/* Center - Preview */}
+            <ResizablePanel defaultSize={80} minSize={30}>
+              <div className="h-full">
+                <Preview />
+              </div>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </ResizablePanel>
+
+        <ResizableHandle />
+
+        {/* Bottom - Timeline */}
+        <ResizablePanel defaultSize={30} minSize={20} maxSize={60}>
+          <div className="h-full border-t border-border overflow-hidden">
+            <Timeline />
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
       {/* Dialogs */}
       <ExportDialog

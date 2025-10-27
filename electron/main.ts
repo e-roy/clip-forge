@@ -81,6 +81,39 @@ const setupFfmpeg = () => {
 
 let win: BrowserWindow | null;
 
+async function loadDevServerWithRetry(
+  window: BrowserWindow,
+  url: string,
+  maxRetries = 15,
+  retryDelay = 800
+): Promise<void> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      await window.loadURL(url);
+      console.log(
+        `✓ Successfully loaded dev server at ${url} (attempt ${
+          i + 1
+        }/${maxRetries})`
+      );
+      return;
+    } catch (error: any) {
+      const errorMsg = error.code || error.message || "Unknown error";
+      console.log(
+        `⏳ Attempt ${
+          i + 1
+        }/${maxRetries}: Dev server not ready yet (${errorMsg})`
+      );
+
+      if (i < maxRetries - 1) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      } else {
+        console.error("❌ Failed to load dev server after maximum retries");
+        throw error;
+      }
+    }
+  }
+}
+
 function createWindow() {
   const iconPath = process.env.VITE_PUBLIC
     ? path.join(process.env.VITE_PUBLIC, "electron-vite.svg")
@@ -90,6 +123,8 @@ function createWindow() {
     ...(iconPath && { icon: iconPath }),
     width: 1200,
     height: 800,
+    show: false, // Don't show window until ready
+    backgroundColor: "#1a1a1a", // Dark background while loading
     webPreferences: {
       preload: path.join(__dirname, "preload.mjs"),
       contextIsolation: true,
@@ -99,8 +134,25 @@ function createWindow() {
     },
   });
 
+  // Show window when ready to prevent blank screen
+  win.once("ready-to-show", () => {
+    win?.show();
+  });
+
   if (VITE_DEV_SERVER_URL) {
-    win.loadURL(VITE_DEV_SERVER_URL);
+    // Use retry mechanism for dev server
+    loadDevServerWithRetry(win, VITE_DEV_SERVER_URL)
+      .then(() => {
+        // Window will show via ready-to-show event
+      })
+      .catch((error) => {
+        console.error("Failed to load dev server:", error);
+        win?.show(); // Show window even on error so user can see the error
+        dialog.showErrorBox(
+          "Dev Server Error",
+          `Failed to connect to Vite dev server at ${VITE_DEV_SERVER_URL}\n\nPlease ensure the dev server is running.`
+        );
+      });
   } else {
     win.loadFile(path.join(RENDERER_DIST, "index.html"));
   }
