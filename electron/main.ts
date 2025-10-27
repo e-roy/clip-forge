@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "fs/promises";
 import { createRequire } from "module";
+import type { ExportJob } from "./types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -85,12 +86,20 @@ function createWindow() {
 // IPC Handlers
 ipcMain.handle("open-file-dialog", async (_, options) => {
   const result = await dialog.showOpenDialog(win!, {
-    properties: ["openFile", "multiSelections"],
+    properties: (options?.properties as any) || ["openFile", "multiSelections"],
     filters: options?.filters || [
       { name: "Media Files", extensions: ["mp4", "mov", "webm"] },
     ],
   });
   return result.filePaths;
+});
+
+ipcMain.handle("save-file-dialog", async (_, options) => {
+  const result = await dialog.showSaveDialog(win!, {
+    filters: options?.filters || [{ name: "Video Files", extensions: ["mp4"] }],
+    defaultPath: options?.defaultPath || "export.mp4",
+  });
+  return result.filePath || "";
 });
 
 ipcMain.handle("get-media-info", async (_, filePaths: string[]) => {
@@ -189,9 +198,149 @@ ipcMain.handle("get-media-info", async (_, filePaths: string[]) => {
   return clipsMetadata;
 });
 
-ipcMain.handle("export-video", async () => {
-  // Stub - will be implemented later
-  return { jobId: "stub" };
+ipcMain.handle("export-video", async (_, payload: ExportJob) => {
+  const ffmpegInstance = setupFfmpeg();
+  const jobId = crypto.randomUUID();
+
+  try {
+    const { outputPath, resolution, fps, bitrateKbps, clips } = payload;
+
+    if (clips.length === 0) {
+      throw new Error("No clips to export");
+    }
+
+    // Determine output resolution
+    let targetWidth: number;
+    let targetHeight: number;
+
+    if (resolution === "720p") {
+      targetWidth = 1280;
+      targetHeight = 720;
+    } else if (resolution === "1080p") {
+      targetWidth = 1920;
+      targetHeight = 1080;
+    } else {
+      // Use source resolution (get from first clip)
+      const videoStream = (await new Promise((resolve, reject) => {
+        ffmpegInstance.ffprobe(
+          clips[0].path,
+          (err: Error | null, metadata: any) => {
+            if (err) reject(err);
+            else
+              resolve(
+                metadata.streams.find(
+                  (s: { codec_type: string }) => s.codec_type === "video"
+                )
+              );
+          }
+        );
+      })) as any;
+      targetWidth = videoStream.width;
+      targetHeight = videoStream.height;
+    }
+
+    // For single clip, simple trim
+    if (clips.length === 1) {
+      const clip = clips[0];
+      const trimStart = clip.inTime;
+      const trimDuration = clip.outTime - clip.inTime;
+
+      await new Promise<void>((resolve, reject) => {
+        ffmpegInstance(clip.path)
+          .seekInput(trimStart)
+          .duration(trimDuration)
+          .videoCodec("libx264")
+          .audioCodec("aac")
+          .outputOptions([
+            "-preset veryfast",
+            `-b:v ${bitrateKbps}k`,
+            `-b:a 128k`,
+            `-r ${fps}`,
+            `-vf scale=${targetWidth}:${targetHeight}`,
+            "-pix_fmt yuv420p", // Ensure compatibility
+          ])
+          .output(outputPath)
+          .on("progress", (progress: { percent?: number }) => {
+            const percent = Math.min(progress.percent || 0, 100);
+            if (win && !win.isDestroyed()) {
+              win.webContents.send("export-progress", {
+                jobId,
+                progress: percent,
+                currentClip: path.basename(clip.path),
+              });
+            }
+          })
+          .on("end", () => resolve())
+          .on("error", (err: Error) => reject(err))
+          .run();
+      });
+    } else {
+      // Multi-clip: create concatenation via file list
+      const concatFile = path.join(app.getPath("temp"), `concat_${jobId}.txt`);
+      let concatContent = "";
+
+      for (const clip of clips) {
+        const trimStart = clip.inTime;
+        concatContent += `file '${clip.path}'\ninpoint ${trimStart}\noutpoint ${clip.outTime}\n`;
+      }
+
+      await fs.writeFile(concatFile, concatContent);
+
+      await new Promise<void>((resolve, reject) => {
+        ffmpegInstance(concatFile)
+          .inputOptions(["-f", "concat", "-safe", "0"])
+          .videoCodec("libx264")
+          .audioCodec("aac")
+          .outputOptions([
+            "-preset veryfast",
+            `-b:v ${bitrateKbps}k`,
+            `-b:a 128k`,
+            `-r ${fps}`,
+            `-vf scale=${targetWidth}:${targetHeight}`,
+            "-pix_fmt yuv420p",
+          ])
+          .output(outputPath)
+          .on("progress", (progress: { percent?: number }) => {
+            const percent = Math.min(progress.percent || 0, 100);
+            if (win && !win.isDestroyed()) {
+              win.webContents.send("export-progress", {
+                jobId,
+                progress: percent,
+              });
+            }
+          })
+          .on("end", () => {
+            // Cleanup concat file
+            fs.unlink(concatFile).catch(console.error);
+            resolve();
+          })
+          .on("error", (err: Error) => {
+            fs.unlink(concatFile).catch(console.error);
+            reject(err);
+          })
+          .run();
+      });
+    }
+
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("export-done", {
+        jobId,
+        success: true,
+        outputPath,
+      });
+    }
+
+    return { jobId };
+  } catch (error: any) {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("export-done", {
+        jobId,
+        success: false,
+        error: error.message || "Export failed",
+      });
+    }
+    throw error;
+  }
 });
 
 ipcMain.handle("get-app-version", () => {

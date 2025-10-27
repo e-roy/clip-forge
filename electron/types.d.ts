@@ -1,5 +1,8 @@
 export interface ExportJob {
   outputPath: string;
+  resolution: "720p" | "1080p" | "source";
+  fps: number;
+  bitrateKbps: number;
   clips: Array<{
     path: string;
     inTime: number;
@@ -39,6 +42,10 @@ export interface ElectronAPI {
     filters?: Array<{ name: string; extensions: string[] }>;
     properties?: string[];
   }) => Promise<string[]>;
+  saveFileDialog: (options?: {
+    filters?: Array<{ name: string; extensions: string[] }>;
+    defaultPath?: string;
+  }) => Promise<string>;
   getMediaInfo: (paths: string[]) => Promise<ClipMeta[]>;
   exportVideo: (payload: ExportJob) => Promise<{ jobId: string }>;
   onExportProgress: (callback: (progress: ExportProgress) => void) => void;

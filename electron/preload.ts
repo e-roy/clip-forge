@@ -4,6 +4,8 @@ import type { ElectronAPI } from "./types";
 const electronAPI: ElectronAPI = {
   openFileDialog: (options?) => ipcRenderer.invoke("open-file-dialog", options),
 
+  saveFileDialog: (options?) => ipcRenderer.invoke("save-file-dialog", options),
+
   getMediaInfo: (paths: string[]) =>
     ipcRenderer.invoke("get-media-info", paths),
 

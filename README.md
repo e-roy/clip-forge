@@ -101,19 +101,6 @@ The built application will be in the `release/` directory.
 - ✅ File dialog integration
 - ✅ Path aliases configured (`@/`, `@components/`, `@lib/`, `@types/`)
 
-## Roadmap
-
-See `/docs/phases/` for detailed phase plans:
-
-- Phase 0: Bootstrap ✅ (Complete)
-- Phase 1: Media Import & Metadata
-- Phase 2: Thumbnail Generation
-- Phase 3: Timeline Implementation
-- Phase 4: Preview Player
-- Phase 5: Basic Trim/Edit
-- Phase 6: Export Pipeline
-- And more...
-
 ## Security
 
 The app uses Electron's secure defaults:
