@@ -8,6 +8,7 @@ interface ClipCardProps {
   onRemove: () => void;
   formatDuration: (seconds: number) => string;
   formatFileSize: (bytes: number) => string;
+  isSelected?: boolean;
 }
 
 export function ClipCard({
@@ -16,6 +17,7 @@ export function ClipCard({
   onRemove,
   formatDuration,
   formatFileSize,
+  isSelected = false,
 }: ClipCardProps) {
   const handleRemove = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -25,7 +27,11 @@ export function ClipCard({
   return (
     <div
       onClick={onSelect}
-      className="group relative cursor-pointer rounded-lg border border-border bg-card p-2 transition-colors hover:bg-accent"
+      className={`group relative cursor-pointer rounded-lg border p-2 transition-colors ${
+        isSelected
+          ? "border-primary bg-accent"
+          : "border-border bg-card hover:bg-accent"
+      }`}
     >
       <div className="flex gap-2">
         {clip.thumbnail ? (

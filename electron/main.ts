@@ -53,6 +53,7 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      webSecurity: false, // Allow loading local video files
     },
   });
 

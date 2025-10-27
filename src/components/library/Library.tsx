@@ -3,11 +3,13 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FolderIcon, XIcon } from "lucide-react";
 import { useClipsStore } from "@/store/clips";
+import { useUIStore } from "@/store/ui";
 import { ClipCard } from "./ClipCard";
 import type { Clip } from "@/types/clip";
 
 export function Library() {
   const { clips, addClips, removeClip } = useClipsStore();
+  const { setSelectedClipId, selectedClipId } = useUIStore();
   const [isDragging, setIsDragging] = useState(false);
 
   const handleImport = async () => {
@@ -81,8 +83,7 @@ export function Library() {
   );
 
   const handleSelectClip = (clip: Clip) => {
-    console.log("Selected clip:", clip);
-    // TODO: Implement clip selection
+    setSelectedClipId(clip.id);
   };
 
   const formatDuration = (seconds: number): string => {
@@ -148,6 +149,7 @@ export function Library() {
                   onRemove={() => removeClip(clip.id)}
                   formatDuration={formatDuration}
                   formatFileSize={formatFileSize}
+                  isSelected={clip.id === selectedClipId}
                 />
               ))}
             </div>

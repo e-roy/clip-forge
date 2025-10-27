@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { PlayIcon, FilmIcon } from "lucide-react";
+import { FilmIcon } from "lucide-react";
 import { Library } from "@/components/library/Library";
+import { Preview } from "@/components/preview/Preview";
 
 function App() {
   const [projectName] = useState("Untitled Project");
@@ -28,18 +29,7 @@ function App() {
 
         {/* Center - Preview */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex h-full items-center justify-center bg-secondary/20">
-            <div className="text-center">
-              <div className="mb-4 flex justify-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-                  <PlayIcon className="h-8 w-8 text-muted-foreground" />
-                </div>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Preview will appear here
-              </p>
-            </div>
-          </div>
+          <Preview />
         </div>
       </div>
 
