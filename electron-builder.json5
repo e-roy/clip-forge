@@ -1,13 +1,25 @@
 // @see - https://www.electron.build/configuration/configuration
 {
   $schema: "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  appId: "com.clipforge.app",
+  appId: "com.clipforge.editor",
   asar: true,
   productName: "ClipForge",
   directories: {
     output: "release/${version}",
   },
   files: ["dist", "dist-electron"],
+  extraResources: [
+    {
+      from: "node_modules/@ffmpeg-installer/ffmpeg",
+      to: "ffmpeg",
+      filter: ["**/*"],
+    },
+    {
+      from: "node_modules/@ffprobe-installer/ffprobe",
+      to: "ffprobe",
+      filter: ["**/*"],
+    },
+  ],
   mac: {
     target: ["dmg"],
     artifactName: "${productName}-Mac-${version}-Installer.${ext}",
@@ -20,6 +32,8 @@
       },
     ],
     artifactName: "${productName}-Windows-${version}-Setup.${ext}",
+    signAndEditExecutable: false,
+    verifyUpdateCodeSignature: false,
   },
   nsis: {
     oneClick: false,

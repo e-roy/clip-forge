@@ -83,23 +83,75 @@ npm run build:app
 
 The built application will be in the `release/` directory.
 
+For Windows: NSIS installer (`.exe`)  
+For macOS: DMG disk image  
+For Linux: AppImage
+
+## Running the Built App
+
+### Windows
+
+Install using the `ClipForge-Windows-0.1.0-Setup.exe` in `release/0.1.0/`
+
+### macOS
+
+Open the DMG and drag ClipForge to Applications.
+
+### Linux
+
+Make the AppImage executable and run:
+
+```bash
+chmod +x ClipForge-Linux-0.1.0.AppImage
+./ClipForge-Linux-0.1.0.AppImage
+```
+
 ## Available Scripts
 
-- `npm run dev` - Start development server
+- `npm run dev` - Start development server with hot reload
 - `npm run build` - Build for production (no packaging)
-- `npm run build:app` - Build and package the app
+- `npm run build:app` - Build and package the app for distribution
 - `npm run typecheck` - Run TypeScript type checking
 - `npm run lint` - Run ESLint
 
-## Features (Phase 0 - Current)
+## Usage
 
-- ✅ Electron app with secure configuration
-- ✅ React + TypeScript setup
-- ✅ TailwindCSS 4 styling with shadcn/ui components
-- ✅ App shell with Library sidebar, Preview area, and Timeline
-- ✅ Typed IPC bridge for Electron communication
-- ✅ File dialog integration
-- ✅ Path aliases configured (`@/`, `@components/`, `@lib/`, `@types/`)
+### Import Clips
+
+1. Click **Import** in the Library sidebar
+2. Or drag and drop video files (MP4, MOV, WebM)
+
+### Edit on Timeline
+
+1. Drag clips from Library to Timeline
+2. Click ruler to move playhead
+3. Use trim handles (left/right edges) to trim clips
+4. Press **Space** to play/pause
+
+### Export
+
+1. Click **Export** button (enabled when timeline has clips)
+2. Choose output location and filename
+3. Select resolution (720p/1080p/Source), FPS, and bitrate
+4. Click **Export** and wait for encoding
+
+## MVP Features
+
+- ✅ **Library** - Import and manage video clips
+- ✅ **Timeline** - Single-track timeline with drag-and-drop
+- ✅ **Preview** - Play clips with timeline scrubbing
+- ✅ **Trim** - Trim clips with in/out handles
+- ✅ **Export** - Export to MP4 with customizable settings (resolution, FPS, bitrate)
+
+## MVP Checklist
+
+- ✅ Launches
+- ✅ Import clips
+- ✅ Timeline display
+- ✅ Preview with timeline sync
+- ✅ Trim clips
+- ✅ Export to MP4
+- ✅ Packaged build
 
 ## Security
 

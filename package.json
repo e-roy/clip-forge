@@ -1,7 +1,9 @@
 {
   "name": "clipforge",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Desktop video editor for quick clip editing and export",
+  "author": "ClipForge Team",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
