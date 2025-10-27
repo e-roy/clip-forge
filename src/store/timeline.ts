@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import type { TimelineItem } from "@/types/timeline";
-import type { Clip } from "@/types/clip";
 import { useClipsStore } from "./clips";
 
 interface TimelineState {
@@ -62,7 +61,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     addItem: (clipId: string) => {
-      const { items, tracks, duration, fps } = get();
+      const { items, tracks, duration } = get();
       const clips = useClipsStore.getState().clips;
       const clip = clips.find((c) => c.id === clipId);
 
@@ -120,7 +119,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
       );
     },
 
-    reorderItems: (itemIds: string[]) => {
+    reorderItems: (_itemIds: string[]) => {
       // TODO: Implement reordering logic
       // For now, this is a placeholder
     },

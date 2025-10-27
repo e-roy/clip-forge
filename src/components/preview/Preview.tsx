@@ -43,9 +43,10 @@ export function Preview() {
       if (activeItem) {
         const timeInClip =
           playheadTime - activeItem.startTime + activeItem.inTime;
+        // Clamp to the trimmed range (inTime to outTime)
         const clampedTime = Math.max(
-          0,
-          Math.min(timeInClip, selectedClip.duration)
+          activeItem.inTime,
+          Math.min(timeInClip, activeItem.outTime)
         );
         setCurrentTime(clampedTime);
         videoRef.current.currentTime = clampedTime;

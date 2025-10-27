@@ -8,10 +8,8 @@ interface TrackProps {
 }
 
 export function Track({ trackId, pixelsPerSecond, height }: TrackProps) {
-  const { getItemsForTrack, getActiveItemAtTime, playheadTime } =
-    useTimelineStore();
+  const { getItemsForTrack, playheadTime } = useTimelineStore();
   const items = getItemsForTrack(trackId);
-  const activeItem = getActiveItemAtTime(playheadTime, trackId);
 
   return (
     <div

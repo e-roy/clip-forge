@@ -6,7 +6,7 @@ interface RulerProps {
   pixelsPerSecond: number;
 }
 
-export function Ruler({ width, pixelsPerSecond }: RulerProps) {
+export function Ruler({ pixelsPerSecond }: RulerProps) {
   const { playheadTime, duration, setPlayheadTime } = useTimelineStore();
 
   // Calculate major tick intervals (every second, 5 seconds, etc.)
