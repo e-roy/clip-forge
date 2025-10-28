@@ -12,7 +12,6 @@ const SNAP_GRID = 0.25; // 0.25 second snap grid
 export function Timeline() {
   const {
     duration,
-    addItem,
     pixelsPerSecond,
     setPixelsPerSecond,
     selectedItemId,
@@ -22,37 +21,32 @@ export function Timeline() {
     playheadTime,
     rippleDelete,
     toggleRippleDelete,
+    tracks,
   } = useTimelineStore();
+
   const { showGrid, toggleGrid, snapToGrid, toggleSnapToGrid } = useUIStore();
   const [dragOver, setDragOver] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleDragOver = useCallback(() => {
+    // Allow the event to propagate to child tracks
     setDragOver(true);
   }, []);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOver(false);
+    // Only hide overlay if leaving the entire timeline area
+    const target = e.relatedTarget as HTMLElement;
+    if (!timelineRef.current?.contains(target)) {
+      setDragOver(false);
+    }
   }, []);
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setDragOver(false);
-
-      // Get the clip ID from the drag data
-      const clipId = e.dataTransfer.getData("text/plain");
-      if (clipId) {
-        addItem(clipId);
-      }
-    },
-    [addItem]
-  );
+  // Don't handle drops at the timeline level - let individual tracks handle it
+  const handleDrop = useCallback(() => {
+    // We don't prevent default here to allow track-level handlers to work
+    // We'll still hide the drag overlay
+    setDragOver(false);
+  }, []);
 
   // Keyboard handlers
   useEffect(() => {
@@ -134,7 +128,11 @@ export function Timeline() {
       {/* Header info */}
       <div className="flex h-8 items-center justify-between border-b border-border px-2 text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
-          <div className="w-20">Track 1</div>
+          {[...tracks].reverse().map((track) => (
+            <div key={track.id} className="w-24">
+              {track.name}
+            </div>
+          ))}
         </div>
         <div className="flex items-center gap-2">
           <Toggle
@@ -182,13 +180,16 @@ export function Timeline() {
             />
           </div>
 
-          {/* Track */}
-          <Track
-            trackId={1}
-            pixelsPerSecond={pixelsPerSecond}
-            height={TRACK_HEIGHT}
-            snapGrid={SNAP_GRID}
-          />
+          {/* Tracks (rendered in reverse order - higher track numbers at top) */}
+          {[...tracks].reverse().map((track) => (
+            <Track
+              key={track.id}
+              trackId={track.trackNumber}
+              pixelsPerSecond={pixelsPerSecond}
+              height={TRACK_HEIGHT}
+              snapGrid={SNAP_GRID}
+            />
+          ))}
         </div>
       </div>
 

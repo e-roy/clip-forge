@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { FilmIcon, Video as VideoIcon } from "lucide-react";
+import { FilmIcon, Video as VideoIcon, Download } from "lucide-react";
 import { Library } from "@/components/library/Library";
 import { Preview } from "@/components/preview/Preview";
 import { Timeline } from "@/components/timeline/Timeline";
@@ -37,6 +37,9 @@ function App() {
           path: clip?.path || "",
           inTime: item.inTime,
           outTime: item.outTime,
+          startTime: item.startTime,
+          endTime: item.endTime,
+          trackId: item.trackId,
         };
       })
       .filter((item) => item.path); // Filter out any missing clips
@@ -59,8 +62,8 @@ function App() {
     try {
       await window.api.exportVideo(exportJob);
     } catch (error) {
-      console.error("Export error:", error);
       setExportProgressOpen(false);
+      alert("Export failed. Please try again.");
     }
   };
 
@@ -70,11 +73,8 @@ function App() {
       const metas = await window.api.getMediaInfo([filePath]);
       if (metas.length > 0) {
         addClips(metas);
-      } else {
-        console.error("No metadata returned for recording:", filePath);
       }
     } catch (error) {
-      console.error("Failed to add recording to library:", error);
       alert(
         "Recording saved but failed to add to library. You may need to manually import it."
       );
@@ -94,9 +94,9 @@ function App() {
             variant="outline"
             onClick={() => setRecorderOpen(true)}
             title="Record screen or webcam"
+            size="icon"
           >
-            <VideoIcon className="mr-2 h-4 w-4" />
-            Record
+            <VideoIcon className="h-4 w-4" />
           </Button>
           <Button
             variant="outline"
@@ -109,8 +109,9 @@ function App() {
                     items.length === 1 ? "clip" : "clips"
                   }`
             }
+            size="icon"
           >
-            Export
+            <Download className="h-4 w-4" />
           </Button>
         </div>
       </div>

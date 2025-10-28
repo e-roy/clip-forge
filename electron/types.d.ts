@@ -7,6 +7,9 @@ export interface ExportJob {
     path: string;
     inTime: number;
     outTime: number;
+    startTime: number;
+    endTime: number;
+    trackId: number;
   }>;
 }
 

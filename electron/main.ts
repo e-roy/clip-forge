@@ -68,9 +68,6 @@ const setupFfmpeg = () => {
       }
     }
 
-    console.log("FFmpeg path:", ffmpegPath);
-    console.log("FFprobe path:", ffprobePath);
-
     ffmpeg.setFfmpegPath(ffmpegPath);
     ffmpeg.setFfprobePath(ffprobePath);
 
@@ -253,8 +250,9 @@ ipcMain.handle("get-media-info", async (_, filePaths: string[]) => {
         const sanitizedName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
         const thumbPath = path.join(thumbDir, `${sanitizedName}_thumb.jpg`);
 
-        // Extract frame at 1 second (or middle if duration < 2s)
-        const frameTime = duration < 2 ? duration / 2 : 1;
+        // Extract frame at a more representative time (avoid fade-ins)
+        // For short videos, use middle; for longer videos, use 10% of duration
+        const frameTime = duration < 5 ? duration * 0.2 : 2;
 
         await new Promise<void>((resolve, reject) => {
           ffmpegInstance(filePath)
@@ -269,9 +267,16 @@ ipcMain.handle("get-media-info", async (_, filePaths: string[]) => {
             .run();
         });
 
-        thumbnail = `file://${thumbPath}`;
+        // Read the thumbnail file and convert to base64 data URL
+        const thumbData = await fs.readFile(thumbPath);
+        const thumbBase64 = thumbData.toString("base64");
+        thumbnail = `data:image/jpeg;base64,${thumbBase64}`;
       } catch (thumbError) {
         // Silently fail - thumbnail is optional
+        console.error(
+          `Thumbnail generation error for ${path.basename(filePath)}:`,
+          thumbError
+        );
       }
 
       clipsMetadata.push({
@@ -301,6 +306,14 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
     if (clips.length === 0) {
       throw new Error("No clips to export");
     }
+
+    // Sort clips by startTime and then by trackId (lower tracks first)
+    const sortedClips = [...clips].sort((a, b) => {
+      if (a.startTime !== b.startTime) {
+        return a.startTime - b.startTime;
+      }
+      return a.trackId - b.trackId;
+    });
 
     // Determine output resolution
     let targetWidth: number;
@@ -332,87 +345,202 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
       targetHeight = videoStream.height;
     }
 
-    // For single clip, simple trim
-    if (clips.length === 1) {
-      const clip = clips[0];
-      const trimStart = clip.inTime;
-      const trimDuration = clip.outTime - clip.inTime;
+    // Create temp directory for intermediate files
+    const tempDir = path.join(app.getPath("userData"), "ClipForge", "temp");
+    await fs.mkdir(tempDir, { recursive: true });
+
+    // Build timeline segments
+    // Segment structure: { startTime, endTime, clips: [{ trackId, clipIndex }] }
+    const segments: Array<{
+      startTime: number;
+      endTime: number;
+      clipsByTrack: Map<number, (typeof sortedClips)[0]>;
+    }> = [];
+
+    // Create a list of all time boundaries
+    const timeBoundaries = new Set<number>();
+    sortedClips.forEach((clip) => {
+      timeBoundaries.add(clip.startTime);
+      timeBoundaries.add(clip.endTime);
+    });
+    const sortedTimes = Array.from(timeBoundaries).sort((a, b) => a - b);
+
+    // Build segments between each time boundary
+    for (let i = 0; i < sortedTimes.length - 1; i++) {
+      const segmentStart = sortedTimes[i];
+      const segmentEnd = sortedTimes[i + 1];
+      const clipsByTrack = new Map<number, (typeof sortedClips)[0]>();
+
+      // Find all clips that exist in this time segment
+      sortedClips.forEach((clip) => {
+        if (clip.startTime <= segmentStart && clip.endTime >= segmentEnd) {
+          // This clip covers this segment
+          // If there's already a clip on this track, keep the one with higher trackId
+          const existing = clipsByTrack.get(clip.trackId);
+          if (!existing || clip.trackId > existing.trackId) {
+            clipsByTrack.set(clip.trackId, clip);
+          }
+        }
+      });
+
+      if (clipsByTrack.size > 0) {
+        segments.push({
+          startTime: segmentStart,
+          endTime: segmentEnd,
+          clipsByTrack,
+        });
+      }
+    }
+
+    // Process segments and create a concat list
+    const segmentFiles: string[] = [];
+    let processedSegments = 0;
+
+    for (const segment of segments) {
+      const segmentDuration = segment.endTime - segment.startTime;
+      const segmentOutputPath = path.join(
+        tempDir,
+        `segment_${processedSegments}.mp4`
+      );
+
+      // Get tracks sorted by trackId (lowest to highest)
+      const tracks = Array.from(segment.clipsByTrack.entries()).sort(
+        (a, b) => a[0] - b[0]
+      );
+
+      if (tracks.length === 1) {
+        // Single track - simple trim and encode
+        const [_trackId, clip] = tracks[0];
+        const clipTimeInSegment = segment.startTime - clip.startTime;
+        const seekTime = clip.inTime + clipTimeInSegment;
+
+        await new Promise<void>((resolve, reject) => {
+          ffmpegInstance(clip.path)
+            .seekInput(seekTime)
+            .duration(segmentDuration)
+            .videoCodec("libx264")
+            .audioCodec("aac")
+            .outputOptions([
+              "-preset veryfast",
+              `-b:v ${bitrateKbps}k`,
+              `-b:a 128k`,
+              `-r ${fps}`,
+              `-vf scale=${targetWidth}:${targetHeight}`,
+              "-pix_fmt yuv420p",
+            ])
+            .output(segmentOutputPath)
+            .on("end", () => resolve())
+            .on("error", (err: Error) => reject(err))
+            .run();
+        });
+      } else {
+        // Multiple tracks - need to composite
+        const command = ffmpegInstance();
+
+        // Add all input files with seeking
+        tracks.forEach(([_trackId, clip]) => {
+          const clipTimeInSegment = segment.startTime - clip.startTime;
+          const seekTime = clip.inTime + clipTimeInSegment;
+          command.input(clip.path).seekInput(seekTime);
+        });
+
+        // Build filter complex for overlaying
+        const filterParts: string[] = [];
+
+        // Scale all inputs to target resolution
+        tracks.forEach((_track, index) => {
+          filterParts.push(
+            `[${index}:v]scale=${targetWidth}:${targetHeight},setpts=PTS-STARTPTS[v${index}]`
+          );
+        });
+
+        // Overlay tracks (higher tracks on top)
+        let currentOutput = "v0";
+        for (let i = 1; i < tracks.length; i++) {
+          const nextOutput = i === tracks.length - 1 ? "vout" : `vtmp${i}`;
+          filterParts.push(
+            `[${currentOutput}][v${i}]overlay=0:0[${nextOutput}]`
+          );
+          currentOutput = nextOutput;
+        }
+
+        // Mix audio from all tracks
+        const audioMixFilter =
+          tracks.length > 1
+            ? `${tracks.map((_, i) => `[${i}:a]`).join("")}amix=inputs=${
+                tracks.length
+              }:duration=first[aout]`
+            : `[0:a]anull[aout]`;
+        filterParts.push(audioMixFilter);
+
+        const filterComplex = filterParts.join(";");
+
+        await new Promise<void>((resolve, reject) => {
+          command
+            .complexFilter(filterComplex)
+            .outputOptions([
+              "-map [vout]",
+              "-map [aout]",
+              "-t " + segmentDuration,
+              "-preset veryfast",
+              `-b:v ${bitrateKbps}k`,
+              `-b:a 128k`,
+              `-r ${fps}`,
+              "-pix_fmt yuv420p",
+            ])
+            .output(segmentOutputPath)
+            .on("end", () => resolve())
+            .on("error", (err: Error) => reject(err))
+            .run();
+        });
+      }
+
+      segmentFiles.push(segmentOutputPath);
+      processedSegments++;
+
+      // Update progress
+      const percent = (processedSegments / segments.length) * 100;
+      if (win && !win.isDestroyed()) {
+        win.webContents.send("export-progress", {
+          jobId,
+          progress: percent,
+          currentClip: `Segment ${processedSegments}/${segments.length}`,
+        });
+      }
+    }
+
+    // Concatenate all segments
+    if (segmentFiles.length === 1) {
+      // Single segment - just copy/rename
+      await fs.rename(segmentFiles[0], outputPath);
+    } else {
+      // Multiple segments - concatenate
+      const concatListPath = path.join(tempDir, "concat_list.txt");
+      const concatContent = segmentFiles
+        .map((file) => `file '${file.replace(/'/g, "'\\''")}'`)
+        .join("\n");
+      await fs.writeFile(concatListPath, concatContent);
 
       await new Promise<void>((resolve, reject) => {
-        ffmpegInstance(clip.path)
-          .seekInput(trimStart)
-          .duration(trimDuration)
-          .videoCodec("libx264")
-          .audioCodec("aac")
-          .outputOptions([
-            "-preset veryfast",
-            `-b:v ${bitrateKbps}k`,
-            `-b:a 128k`,
-            `-r ${fps}`,
-            `-vf scale=${targetWidth}:${targetHeight}`,
-            "-pix_fmt yuv420p", // Ensure compatibility
-          ])
+        ffmpegInstance()
+          .input(concatListPath)
+          .inputOptions(["-f concat", "-safe 0"])
+          .outputOptions(["-c copy"])
           .output(outputPath)
-          .on("progress", (progress: { percent?: number }) => {
-            const percent = Math.min(progress.percent || 0, 100);
-            if (win && !win.isDestroyed()) {
-              win.webContents.send("export-progress", {
-                jobId,
-                progress: percent,
-                currentClip: path.basename(clip.path),
-              });
-            }
-          })
           .on("end", () => resolve())
           .on("error", (err: Error) => reject(err))
           .run();
       });
-    } else {
-      // Multi-clip: create concatenation via file list
-      const concatFile = path.join(app.getPath("temp"), `concat_${jobId}.txt`);
-      let concatContent = "";
+    }
 
-      for (const clip of clips) {
-        const trimStart = clip.inTime;
-        concatContent += `file '${clip.path}'\ninpoint ${trimStart}\noutpoint ${clip.outTime}\n`;
+    // Clean up temp files
+    try {
+      for (const file of segmentFiles) {
+        await fs.unlink(file).catch(() => {});
       }
-
-      await fs.writeFile(concatFile, concatContent);
-
-      await new Promise<void>((resolve, reject) => {
-        ffmpegInstance(concatFile)
-          .inputOptions(["-f", "concat", "-safe", "0"])
-          .videoCodec("libx264")
-          .audioCodec("aac")
-          .outputOptions([
-            "-preset veryfast",
-            `-b:v ${bitrateKbps}k`,
-            `-b:a 128k`,
-            `-r ${fps}`,
-            `-vf scale=${targetWidth}:${targetHeight}`,
-            "-pix_fmt yuv420p",
-          ])
-          .output(outputPath)
-          .on("progress", (progress: { percent?: number }) => {
-            const percent = Math.min(progress.percent || 0, 100);
-            if (win && !win.isDestroyed()) {
-              win.webContents.send("export-progress", {
-                jobId,
-                progress: percent,
-              });
-            }
-          })
-          .on("end", () => {
-            // Cleanup concat file
-            fs.unlink(concatFile).catch(console.error);
-            resolve();
-          })
-          .on("error", (err: Error) => {
-            fs.unlink(concatFile).catch(console.error);
-            reject(err);
-          })
-          .run();
-      });
+      await fs.unlink(path.join(tempDir, "concat_list.txt")).catch(() => {});
+    } catch (cleanupError) {
+      console.warn("Failed to clean up temp files:", cleanupError);
     }
 
     if (win && !win.isDestroyed()) {
@@ -425,6 +553,7 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
 
     return { jobId };
   } catch (error: any) {
+    console.error("Export error:", error);
     if (win && !win.isDestroyed()) {
       win.webContents.send("export-done", {
         jobId,

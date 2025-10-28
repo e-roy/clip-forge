@@ -24,6 +24,7 @@ interface TimelineState {
   tracks: Array<{
     id: string;
     trackNumber: number;
+    name: string;
     locked: boolean;
     muted: boolean;
     volume: number;
@@ -32,16 +33,18 @@ interface TimelineState {
   // Actions
   setPlayheadTime: (time: number) => void;
   setPixelsPerSecond: (pps: number) => void;
-  addItem: (clipId: string) => void;
+  addItem: (clipId: string, trackId?: number) => void;
   removeItem: (itemId: string, ripple?: boolean) => void;
   updateItem: (itemId: string, updates: Partial<TimelineItem>) => void;
   getItemsForTrack: (trackId: number) => TimelineItem[];
   getActiveItemAtTime: (time: number, trackId: number) => TimelineItem | null;
+  getTopActiveItemAtTime: (time: number) => TimelineItem | null;
   selectItem: (itemId: string | null) => void;
   splitItemAtPlayhead: (itemId: string, playheadTime: number) => void;
   getNextItemAfterTime: (time: number, trackId: number) => TimelineItem | null;
   reorderItems: (itemIds: string[]) => void;
   toggleRippleDelete: () => void;
+  addTrack: () => string;
 }
 
 export const useTimelineStore = create<TimelineState>((set, get) => {
@@ -51,10 +54,20 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
   // Generate a unique ID for tracks
   const generateTrackId = () => crypto.randomUUID();
 
-  // Create initial track
-  const initialTrack = {
+  // Create initial tracks (V1 at bottom, V2 at top)
+  const track1 = {
     id: generateTrackId(),
     trackNumber: 1,
+    name: "V1",
+    locked: false,
+    muted: false,
+    volume: 1,
+  };
+
+  const track2 = {
+    id: generateTrackId(),
+    trackNumber: 2,
+    name: "V2",
     locked: false,
     muted: false,
     volume: 1,
@@ -68,38 +81,46 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     items: [],
     selectedItemId: null,
     rippleDelete: false,
-    tracks: [initialTrack],
+    tracks: [track1, track2],
 
     setPlayheadTime: (time: number) => {
       const { duration } = get();
       set({ playheadTime: Math.max(0, Math.min(time, duration)) });
     },
 
-    addItem: (clipId: string) => {
+    addItem: (clipId: string, trackId: number = 1) => {
       const { items, tracks, duration } = get();
       const clips = useClipsStore.getState().clips;
       const clip = clips.find((c) => c.id === clipId);
 
       if (!clip) return;
 
-      const track = tracks[0]; // Use first track for now
+      const track = tracks.find((t) => t.trackNumber === trackId);
       if (!track) return;
 
-      // Calculate position (append at the end)
+      // Calculate position (append at the end of the specific track)
+      // Find the latest item on this track
+      const trackItems = items.filter((item) => item.trackId === trackId);
+      const lastItem = trackItems.sort((a, b) => b.endTime - a.endTime)[0];
+      const startTime = lastItem ? lastItem.endTime : duration;
+
       const itemDuration = clip.duration;
       const newItem: TimelineItem = {
         id: generateItemId(),
         clipId,
-        startTime: duration,
-        endTime: duration + itemDuration,
+        startTime,
+        endTime: startTime + itemDuration,
         inTime: 0,
         outTime: itemDuration,
         trackId: track.trackNumber,
       };
 
+      // Update global duration if this is the last item
+      const newDuration = Math.max(duration, startTime + itemDuration);
+
       set({
         items: [...items, newItem],
-        duration: duration + itemDuration,
+        duration: newDuration,
       });
     },
 
@@ -207,10 +228,20 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     updateItem: (itemId: string, updates: Partial<TimelineItem>) => {
+      const { items } = get();
+      const newItems = items.map((item) =>
+        item.id === itemId ? { ...item, ...updates } : item
+      );
+
+      // Recalculate duration based on all items
+      const newDuration =
+        newItems.length > 0
+          ? Math.max(...newItems.map((item) => item.endTime))
+          : 0;
+
       set({
-        items: get().items.map((item) =>
-          item.id === itemId ? { ...item, ...updates } : item
-        ),
+        items: newItems,
+        duration: newDuration,
       });
     },
 
@@ -238,6 +269,54 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         .sort((a, b) => a.startTime - b.startTime);
 
       return trackItems.find((item) => item.startTime > time) || null;
+    },
+
+    getTopActiveItemAtTime: (time: number) => {
+      const { items, tracks } = get();
+
+      // Find all tracks sorted by trackNumber (higher numbers first)
+      const sortedTracks = [...tracks].sort(
+        (a, b) => b.trackNumber - a.trackNumber
+      );
+
+      // For each track (from highest to lowest), check if there's an item at this time
+      for (const track of sortedTracks) {
+        const item = items.find(
+          (item) =>
+            item.trackId === track.trackNumber &&
+            time >= item.startTime &&
+            time < item.endTime
+        );
+
+        if (item) {
+          return item;
+        }
+      }
+
+      return null;
+    },
+
+    addTrack: () => {
+      const { tracks } = get();
+      const nextTrackNumber =
+        tracks.length > 0
+          ? Math.max(...tracks.map((t) => t.trackNumber)) + 1
+          : 1;
+
+      const newTrack = {
+        id: generateTrackId(),
+        trackNumber: nextTrackNumber,
+        name: `V${nextTrackNumber}`,
+        locked: false,
+        muted: false,
+        volume: 1,
+      };
+
+      set({
+        tracks: [...tracks, newTrack],
+      });
+
+      return newTrack.id;
     },
 
     reorderItems: (_itemIds: string[]) => {

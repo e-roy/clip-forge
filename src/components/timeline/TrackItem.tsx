@@ -285,10 +285,19 @@ export function TrackItem({
 
   if (!clip) return null;
 
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", item.clipId);
+    // Add item ID to distinguish from library clips
+    e.dataTransfer.setData("application/timeline-item-id", item.id);
+  };
+
   return (
     <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
       <PopoverTrigger asChild>
         <div
+          draggable
+          onDragStart={handleDragStart}
           className={`group absolute flex h-full items-center cursor-move select-none transition-opacity ${
             isSelected
               ? "border-2 border-accent bg-accent/20"
