@@ -103,16 +103,28 @@ export function Library() {
       <div className="border-b border-border p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold">Library</h2>
-          {clips.length > 0 && (
+          <div className="flex items-center gap-1">
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => useClipsStore.getState().clearClips()}
+              onClick={handleImport}
               className="h-6 w-6"
+              title="Import media files"
             >
-              <XIcon className="h-4 w-4" />
+              <FolderIcon className="h-4 w-4" />
             </Button>
-          )}
+            {clips.length > 0 && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => useClipsStore.getState().clearClips()}
+                className="h-6 w-6"
+                title="Clear all clips"
+              >
+                <XIcon className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -123,15 +135,6 @@ export function Library() {
           onDrop={handleDrop}
           className={`h-full p-4 ${isDragging ? "bg-primary/10" : ""}`}
         >
-          <Button
-            variant="default"
-            className="w-full justify-start"
-            onClick={handleImport}
-          >
-            <FolderIcon className="mr-2 h-4 w-4" />
-            Import
-          </Button>
-
           {clips.length === 0 ? (
             <div className="mt-4 text-center text-sm text-muted-foreground">
               <p>No clips imported yet</p>
@@ -140,7 +143,7 @@ export function Library() {
               </p>
             </div>
           ) : (
-            <div className="mt-4 space-y-2">
+            <div className="space-y-2">
               {clips.map((clip) => (
                 <ClipCard
                   key={clip.id}

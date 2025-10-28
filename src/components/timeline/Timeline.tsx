@@ -3,8 +3,10 @@ import { useTimelineStore } from "@/store/timeline";
 import { useUIStore } from "@/store/ui";
 import { Ruler } from "./Ruler";
 import { Track } from "./Track";
+import { TrackControls } from "./TrackControls";
 import { Toggle } from "@/components/ui/toggle";
-import { Grid3x3 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Grid3x3, Plus } from "lucide-react";
 
 const TRACK_HEIGHT = 60;
 const SNAP_GRID = 0.25; // 0.25 second snap grid
@@ -22,6 +24,7 @@ export function Timeline() {
     rippleDelete,
     toggleRippleDelete,
     tracks,
+    addTrack,
   } = useTimelineStore();
 
   const { showGrid, toggleGrid, snapToGrid, toggleSnapToGrid } = useUIStore();
@@ -168,28 +171,64 @@ export function Timeline() {
         </div>
       </div>
 
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-x-auto bg-secondary/10">
-        <div style={{ width: `${width}px`, minWidth: "100%" }}>
-          {/* Ruler */}
-          <div className="sticky top-0 z-10">
-            <Ruler
-              width={width}
-              pixelsPerSecond={pixelsPerSecond}
-              snapGrid={SNAP_GRID}
-            />
-          </div>
+      {/* Main timeline content with control panel */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left control panel */}
+        <div className="w-32 flex flex-col border-r border-border bg-secondary/5">
+          {/* Ruler spacer */}
+          <div className="h-8 shrink-0 border-b border-border" />
 
-          {/* Tracks (rendered in reverse order - higher track numbers at top) */}
-          {[...tracks].reverse().map((track) => (
-            <Track
-              key={track.id}
-              trackId={track.trackNumber}
-              pixelsPerSecond={pixelsPerSecond}
-              height={TRACK_HEIGHT}
-              snapGrid={SNAP_GRID}
-            />
-          ))}
+          {/* Track controls */}
+          <div>
+            {[...tracks].reverse().map((track) => (
+              <TrackControls
+                key={track.id}
+                trackId={track.id}
+                height={TRACK_HEIGHT}
+                isVisible={track.visible}
+                isLocked={track.locked}
+                isMuted={track.muted}
+              />
+            ))}
+
+            {/* Add track button */}
+            <div className="flex h-[60px] items-center justify-center border-t border-border">
+              <Button
+                onClick={addTrack}
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0"
+                title="Add new track"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-x-auto bg-secondary/10">
+          <div style={{ width: `${width}px`, minWidth: "100%" }}>
+            {/* Ruler */}
+            <div className="sticky top-0 z-10">
+              <Ruler
+                width={width}
+                pixelsPerSecond={pixelsPerSecond}
+                snapGrid={SNAP_GRID}
+              />
+            </div>
+
+            {/* Tracks (rendered in reverse order - higher track numbers at top) */}
+            {[...tracks].reverse().map((track) => (
+              <Track
+                key={track.id}
+                trackId={track.trackNumber}
+                pixelsPerSecond={pixelsPerSecond}
+                height={TRACK_HEIGHT}
+                snapGrid={SNAP_GRID}
+              />
+            ))}
+          </div>
         </div>
       </div>
 

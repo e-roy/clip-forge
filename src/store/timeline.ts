@@ -25,6 +25,7 @@ interface TimelineState {
     id: string;
     trackNumber: number;
     name: string;
+    visible: boolean;
     locked: boolean;
     muted: boolean;
     volume: number;
@@ -45,6 +46,9 @@ interface TimelineState {
   reorderItems: (itemIds: string[]) => void;
   toggleRippleDelete: () => void;
   addTrack: () => string;
+  toggleTrackVisibility: (trackId: string) => void;
+  toggleTrackLock: (trackId: string) => void;
+  toggleTrackMute: (trackId: string) => void;
 }
 
 export const useTimelineStore = create<TimelineState>((set, get) => {
@@ -59,6 +63,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     id: generateTrackId(),
     trackNumber: 1,
     name: "V1",
+    visible: true,
     locked: false,
     muted: false,
     volume: 1,
@@ -68,6 +73,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     id: generateTrackId(),
     trackNumber: 2,
     name: "V2",
+    visible: true,
     locked: false,
     muted: false,
     volume: 1,
@@ -307,6 +313,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         id: generateTrackId(),
         trackNumber: nextTrackNumber,
         name: `V${nextTrackNumber}`,
+        visible: true,
         locked: false,
         muted: false,
         volume: 1,
@@ -322,6 +329,30 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     reorderItems: (_itemIds: string[]) => {
       // TODO: Implement reordering logic
       // For now, this is a placeholder
+    },
+
+    toggleTrackVisibility: (trackId: string) => {
+      const { tracks } = get();
+      const newTracks = tracks.map((track) =>
+        track.id === trackId ? { ...track, visible: !track.visible } : track
+      );
+      set({ tracks: newTracks });
+    },
+
+    toggleTrackLock: (trackId: string) => {
+      const { tracks } = get();
+      const newTracks = tracks.map((track) =>
+        track.id === trackId ? { ...track, locked: !track.locked } : track
+      );
+      set({ tracks: newTracks });
+    },
+
+    toggleTrackMute: (trackId: string) => {
+      const { tracks } = get();
+      const newTracks = tracks.map((track) =>
+        track.id === trackId ? { ...track, muted: !track.muted } : track
+      );
+      set({ tracks: newTracks });
     },
   };
 });

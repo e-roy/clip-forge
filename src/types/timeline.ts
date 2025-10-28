@@ -11,6 +11,7 @@ export interface TimelineItem {
 export interface TimelineTrack {
   id: string;
   trackNumber: number;
+  visible: boolean;
   locked: boolean;
   muted: boolean;
   volume: number;
