@@ -82,7 +82,7 @@ export function Ruler({ pixelsPerSecond, snapGrid }: RulerProps) {
 
       {/* Playhead */}
       <div
-        className="absolute h-full w-0.5 bg-primary"
+        className="absolute h-full w-0.5 bg-primary z-20"
         style={{ left: `${playheadTime * pixelsPerSecond}px` }}
       >
         <div className="absolute top-0 h-0 w-0 border-l-[6px] border-r-[6px] border-t-[6px] border-l-transparent border-r-transparent border-t-primary" />

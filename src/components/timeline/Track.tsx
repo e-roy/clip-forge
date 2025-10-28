@@ -95,8 +95,9 @@ export function Track({
         />
       ))}
 
+      {/* Playhead line */}
       <div
-        className="absolute h-full border-l-2 border-dashed border-primary opacity-50"
+        className="absolute h-full w-0.5 bg-primary z-10"
         style={{ left: `${playheadTime * pixelsPerSecond}px` }}
       />
 

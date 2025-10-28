@@ -32,3 +32,17 @@ export interface ClipMeta {
     height: number;
   };
 }
+
+// Result type for project operations
+export interface Result {
+  success: boolean;
+  error?: string;
+  data?: any;
+}
+
+// Collect assets result
+export interface CollectResult {
+  success: boolean;
+  error?: string;
+  collectedAssets?: string[];
+}

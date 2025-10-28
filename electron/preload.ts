@@ -35,6 +35,22 @@ const electronAPI: ElectronAPI = {
   listProjects: () => ipcRenderer.invoke("list-projects"),
 
   deleteAutosave: () => ipcRenderer.invoke("delete-autosave"),
+
+  // New handlers for Stretch 7
+  saveProjectAs: (projectData, filePath) =>
+    ipcRenderer.invoke("save-project-as", projectData, filePath),
+
+  openProjectDialog: () => ipcRenderer.invoke("open-project-dialog"),
+
+  collectAssets: (projectPath, clipPaths) =>
+    ipcRenderer.invoke("collect-assets", projectPath, clipPaths),
+
+  createArchive: (projectPath, outputPath) =>
+    ipcRenderer.invoke("create-archive", projectPath, outputPath),
+
+  checkCrashRecovery: () => ipcRenderer.invoke("check-crash-recovery"),
+
+  clearCrashFlag: () => ipcRenderer.invoke("clear-crash-flag"),
 };
 
 contextBridge.exposeInMainWorld("api", electronAPI);

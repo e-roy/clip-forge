@@ -75,6 +75,29 @@ export interface ElectronAPI {
     Array<{ name: string; path: string; modified: number }>
   >;
   deleteAutosave: () => Promise<{ success: boolean; error?: string }>;
+  // New handlers for Stretch 7
+  saveProjectAs: (
+    projectData: string,
+    filePath: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  openProjectDialog: () => Promise<string | null>;
+  collectAssets: (
+    projectPath: string,
+    clipPaths: string[]
+  ) => Promise<{
+    success: boolean;
+    error?: string;
+    collectedAssets?: string[];
+  }>;
+  createArchive: (
+    projectPath: string,
+    outputPath: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  checkCrashRecovery: () => Promise<{
+    hasCrash: boolean;
+    autosavePath?: string;
+  }>;
+  clearCrashFlag: () => Promise<void>;
 }
 
 declare global {

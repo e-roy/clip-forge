@@ -14,6 +14,14 @@ interface UIState {
   setRecorderOpen: (open: boolean) => void;
   shortcutsDialogOpen: boolean;
   setShortcutsDialogOpen: (open: boolean) => void;
+  settingsDialogOpen: boolean;
+  setSettingsDialogOpen: (open: boolean) => void;
+  collectAssetsDialogOpen: boolean;
+  setCollectAssetsDialogOpen: (open: boolean) => void;
+  archiveDialogOpen: boolean;
+  setArchiveDialogOpen: (open: boolean) => void;
+  recoveryDialogOpen: boolean;
+  setRecoveryDialogOpen: (open: boolean) => void;
 
   // Existing UI state
   selectedClipId: string | null;
@@ -36,6 +44,15 @@ export const useUIStore = create<UIState>((set) => ({
   setRecorderOpen: (open: boolean) => set({ recorderOpen: open }),
   shortcutsDialogOpen: false,
   setShortcutsDialogOpen: (open: boolean) => set({ shortcutsDialogOpen: open }),
+  settingsDialogOpen: false,
+  setSettingsDialogOpen: (open: boolean) => set({ settingsDialogOpen: open }),
+  collectAssetsDialogOpen: false,
+  setCollectAssetsDialogOpen: (open: boolean) =>
+    set({ collectAssetsDialogOpen: open }),
+  archiveDialogOpen: false,
+  setArchiveDialogOpen: (open: boolean) => set({ archiveDialogOpen: open }),
+  recoveryDialogOpen: false,
+  setRecoveryDialogOpen: (open: boolean) => set({ recoveryDialogOpen: open }),
 
   selectedClipId: null,
   setSelectedClipId: (id: string | null) => set({ selectedClipId: id }),
