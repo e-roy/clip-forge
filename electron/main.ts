@@ -3,12 +3,20 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "fs/promises";
 import { createRequire } from "module";
+import Store from "electron-store";
 import type { ExportJob } from "./types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 
 process.env.APP_ROOT = path.join(__dirname, "..");
+
+// Initialize electron-store for preferences
+const store = new Store({
+  defaults: {
+    lastOutputFolder: "",
+  },
+});
 
 export const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 export const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
@@ -185,10 +193,26 @@ ipcMain.handle("open-file-dialog", async (_, options) => {
 });
 
 ipcMain.handle("save-file-dialog", async (_, options) => {
+  const lastFolder = store.get("lastOutputFolder", "");
+  const defaultPath = options?.defaultPath
+    ? lastFolder
+      ? path.join(lastFolder as string, options.defaultPath)
+      : options.defaultPath
+    : lastFolder
+    ? path.join(lastFolder as string, "export.mp4")
+    : "export.mp4";
+
   const result = await dialog.showSaveDialog(win!, {
     filters: options?.filters || [{ name: "Video Files", extensions: ["mp4"] }],
-    defaultPath: options?.defaultPath || "export.mp4",
+    defaultPath: defaultPath,
   });
+
+  // Save the output folder for next time
+  if (result.filePath) {
+    const folder = path.dirname(result.filePath);
+    store.set("lastOutputFolder", folder);
+  }
+
   return result.filePath || "";
 });
 
@@ -296,9 +320,24 @@ ipcMain.handle("get-media-info", async (_, filePaths: string[]) => {
   return clipsMetadata;
 });
 
+// Helper function to parse ffmpeg output and extract time
+function parseFFmpegProgress(stderr: string): number | null {
+  // Look for time=HH:MM:SS.ms format
+  const timeMatch = stderr.match(/time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+  if (timeMatch) {
+    const hours = parseInt(timeMatch[1], 10);
+    const minutes = parseInt(timeMatch[2], 10);
+    const seconds = parseInt(timeMatch[3], 10);
+    const centiseconds = parseInt(timeMatch[4], 10);
+    return hours * 3600 + minutes * 60 + seconds + centiseconds / 100;
+  }
+  return null;
+}
+
 ipcMain.handle("export-video", async (_, payload: ExportJob) => {
   const ffmpegInstance = setupFfmpeg();
   const jobId = crypto.randomUUID();
+  const startTime = Date.now();
 
   try {
     const { outputPath, resolution, fps, bitrateKbps, clips } = payload;
@@ -392,6 +431,12 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
       }
     }
 
+    // Calculate total timeline duration for progress tracking
+    const totalDuration =
+      sortedTimes.length > 0
+        ? sortedTimes[sortedTimes.length - 1] - sortedTimes[0]
+        : 0;
+
     // Process segments and create a concat list
     const segmentFiles: string[] = [];
     let processedSegments = 0;
@@ -407,6 +452,26 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
       const tracks = Array.from(segment.clipsByTrack.entries()).sort(
         (a, b) => a[0] - b[0]
       );
+
+      // Helper to send progress update
+      const sendProgress = () => {
+        const percent = (processedSegments / segments.length) * 100;
+        const elapsed = (Date.now() - startTime) / 1000;
+        const eta =
+          elapsed > 0 && percent > 0
+            ? (elapsed / percent) * (100 - percent)
+            : undefined;
+
+        if (win && !win.isDestroyed()) {
+          win.webContents.send("export-progress", {
+            jobId,
+            progress: percent,
+            currentClip: `Segment ${processedSegments + 1}/${segments.length}`,
+            elapsed: Math.round(elapsed),
+            eta: eta ? Math.round(eta) : undefined,
+          });
+        }
+      };
 
       if (tracks.length === 1) {
         // Single track - simple trim and encode
@@ -429,6 +494,12 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
               "-pix_fmt yuv420p",
             ])
             .output(segmentOutputPath)
+            .on("stderr", (stderrLine: string) => {
+              const timeValue = parseFFmpegProgress(stderrLine);
+              if (timeValue !== null && totalDuration > 0) {
+                sendProgress();
+              }
+            })
             .on("end", () => resolve())
             .on("error", (err: Error) => reject(err))
             .run();
@@ -489,6 +560,12 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
               "-pix_fmt yuv420p",
             ])
             .output(segmentOutputPath)
+            .on("stderr", (stderrLine: string) => {
+              const timeValue = parseFFmpegProgress(stderrLine);
+              if (timeValue !== null && totalDuration > 0) {
+                sendProgress();
+              }
+            })
             .on("end", () => resolve())
             .on("error", (err: Error) => reject(err))
             .run();
@@ -497,16 +574,6 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
 
       segmentFiles.push(segmentOutputPath);
       processedSegments++;
-
-      // Update progress
-      const percent = (processedSegments / segments.length) * 100;
-      if (win && !win.isDestroyed()) {
-        win.webContents.send("export-progress", {
-          jobId,
-          progress: percent,
-          currentClip: `Segment ${processedSegments}/${segments.length}`,
-        });
-      }
     }
 
     // Concatenate all segments

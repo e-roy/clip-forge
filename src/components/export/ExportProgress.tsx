@@ -16,6 +16,20 @@ interface ExportProgressProps {
   onClose: () => void;
 }
 
+const formatTime = (seconds?: number) => {
+  if (seconds === undefined) return "";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(
+      secs
+    ).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(secs).padStart(2, "0")}`;
+};
+
 export function ExportProgress({
   open,
   onOpenChange,
@@ -27,14 +41,22 @@ export function ExportProgress({
   );
   const [error, setError] = useState<string>("");
   const [outputPath, setOutputPath] = useState<string>("");
+  const [elapsed, setElapsed] = useState<number>(0);
+  const [eta, setEta] = useState<number | undefined>(undefined);
+  const [currentClip, setCurrentClip] = useState<string>("");
 
   useEffect(() => {
     const handleProgress = (data: {
       jobId: string;
       progress: number;
       currentClip?: string;
+      elapsed?: number;
+      eta?: number;
     }) => {
       setProgress(data.progress);
+      if (data.elapsed !== undefined) setElapsed(data.elapsed);
+      if (data.eta !== undefined) setEta(data.eta);
+      if (data.currentClip) setCurrentClip(data.currentClip);
     };
 
     const handleDone = (result: {
@@ -64,6 +86,9 @@ export function ExportProgress({
         setStatus("exporting");
         setError("");
         setOutputPath("");
+        setElapsed(0);
+        setEta(undefined);
+        setCurrentClip("");
       }, 100);
     }
   }, [open]);
@@ -87,10 +112,14 @@ export function ExportProgress({
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span>Encoding video...</span>
+                  <span>{currentClip || "Encoding video..."}</span>
                   <span>{Math.round(progress)}%</span>
                 </div>
                 <Progress value={progress} />
+                <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                  <span>Elapsed: {formatTime(elapsed)}</span>
+                  {eta !== undefined && <span>ETA: {formatTime(eta)}</span>}
+                </div>
               </div>
             </>
           )}

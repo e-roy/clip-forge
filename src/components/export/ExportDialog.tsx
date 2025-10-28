@@ -10,6 +10,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { useTimelineStore } from "@/store/timeline";
+import { Card } from "@/components/ui/card";
 
 interface ExportDialogProps {
   open: boolean;
@@ -21,6 +22,27 @@ interface ExportDialogProps {
     bitrateKbps: number;
   }) => void;
 }
+
+const PRESETS = {
+  youtube1080p: {
+    name: "YouTube 1080p",
+    resolution: "1080p" as const,
+    fps: 30,
+    bitrateKbps: 8000,
+  },
+  youtube720p: {
+    name: "YouTube 720p",
+    resolution: "720p" as const,
+    fps: 30,
+    bitrateKbps: 5000,
+  },
+  source: {
+    name: "Source Quality",
+    resolution: "source" as const,
+    fps: 30,
+    bitrateKbps: 10000,
+  },
+};
 
 export function ExportDialog({
   open,
@@ -34,6 +56,19 @@ export function ExportDialog({
   const [fps, setFps] = useState(30);
   const [bitrateKbps, setBitrateKbps] = useState(5000);
   const [outputPath, setOutputPath] = useState("");
+  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
+
+  const applyPreset = (preset: {
+    name: string;
+    resolution: "720p" | "1080p" | "source";
+    fps: number;
+    bitrateKbps: number;
+  }) => {
+    setResolution(preset.resolution);
+    setFps(preset.fps);
+    setBitrateKbps(preset.bitrateKbps);
+    setSelectedPreset(preset.name);
+  };
 
   const handleExport = async () => {
     if (!outputPath) {
@@ -84,12 +119,62 @@ export function ExportDialog({
           </div>
 
           <div>
+            <Label>Presets</Label>
+            <div className="flex gap-2 mt-1">
+              <Card
+                className={`p-3 cursor-pointer flex-1 transition-colors ${
+                  selectedPreset === PRESETS.youtube1080p.name
+                    ? "border-primary bg-primary/5"
+                    : ""
+                }`}
+                onClick={() => applyPreset(PRESETS.youtube1080p)}
+              >
+                <div className="text-sm font-medium">
+                  {PRESETS.youtube1080p.name}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  1080p • 30fps • 8 Mbps
+                </div>
+              </Card>
+              <Card
+                className={`p-3 cursor-pointer flex-1 transition-colors ${
+                  selectedPreset === PRESETS.youtube720p.name
+                    ? "border-primary bg-primary/5"
+                    : ""
+                }`}
+                onClick={() => applyPreset(PRESETS.youtube720p)}
+              >
+                <div className="text-sm font-medium">
+                  {PRESETS.youtube720p.name}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  720p • 30fps • 5 Mbps
+                </div>
+              </Card>
+              <Card
+                className={`p-3 cursor-pointer flex-1 transition-colors ${
+                  selectedPreset === PRESETS.source.name
+                    ? "border-primary bg-primary/5"
+                    : ""
+                }`}
+                onClick={() => applyPreset(PRESETS.source)}
+              >
+                <div className="text-sm font-medium">{PRESETS.source.name}</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Original • 30fps • 10 Mbps
+                </div>
+              </Card>
+            </div>
+          </div>
+
+          <div>
             <Label>Resolution</Label>
             <select
               value={resolution}
-              onChange={(e) =>
-                setResolution(e.target.value as "720p" | "1080p" | "source")
-              }
+              onChange={(e) => {
+                setResolution(e.target.value as "720p" | "1080p" | "source");
+                setSelectedPreset(null);
+              }}
               className="w-full mt-1 px-3 py-2 border border-input bg-background rounded-md"
             >
               <option value="720p">720p (1280x720)</option>
@@ -103,7 +188,10 @@ export function ExportDialog({
             <Input
               type="number"
               value={fps}
-              onChange={(e) => setFps(Number(e.target.value))}
+              onChange={(e) => {
+                setFps(Number(e.target.value));
+                setSelectedPreset(null);
+              }}
               min="24"
               max="60"
             />
@@ -114,7 +202,10 @@ export function ExportDialog({
             <Input
               type="number"
               value={bitrateKbps}
-              onChange={(e) => setBitrateKbps(Number(e.target.value))}
+              onChange={(e) => {
+                setBitrateKbps(Number(e.target.value));
+                setSelectedPreset(null);
+              }}
               min="1000"
               max="20000"
             />

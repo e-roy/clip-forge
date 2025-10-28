@@ -17,6 +17,8 @@ export interface ExportProgress {
   jobId: string;
   progress: number;
   currentClip?: string;
+  elapsed?: number; // seconds
+  eta?: number; // seconds
 }
 
 export interface ExportResult {
