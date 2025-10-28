@@ -111,23 +111,12 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
         // Restore clips (only if they exist and are valid)
         if (Array.isArray(projectData.clips)) {
-          clipsModule.useClipsStore.getState().clearClips();
           const validClips = projectData.clips.filter(
-            (clip) => clip && clip.path && clip.duration && clip.format
+            (clip) =>
+              clip && clip.id && clip.path && clip.duration && clip.format
           );
-          if (validClips.length > 0) {
-            clipsModule.useClipsStore.getState().addClips(
-              validClips.map((clip) => ({
-                path: clip.path,
-                duration: clip.duration,
-                format: clip.format,
-                codec: clip.codec,
-                fileSize: clip.fileSize,
-                resolution: clip.resolution,
-                thumbnail: clip.thumbnail,
-              }))
-            );
-          }
+          // Directly set clips to preserve their IDs
+          clipsModule.useClipsStore.setState({ clips: validClips });
         }
 
         // Restore timeline (preserve history/undo state)
