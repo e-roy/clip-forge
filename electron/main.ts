@@ -1,10 +1,18 @@
-import { app, BrowserWindow, dialog, desktopCapturer, ipcMain } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  desktopCapturer,
+  ipcMain,
+  Menu,
+} from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "fs/promises";
 import { createRequire } from "module";
 import Store from "electron-store";
 import type { ExportJob } from "./types";
+import { createApplicationMenu } from "./menu";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -142,6 +150,26 @@ function createWindow() {
   // Show window when ready to prevent blank screen
   win.once("ready-to-show", () => {
     win?.show();
+  });
+
+  // Set application menu
+  const menu = createApplicationMenu(win);
+  Menu.setApplicationMenu(menu);
+
+  // Handle about dialog from menu
+  ipcMain.on("show-about-dialog", () => {
+    const version = app.getVersion();
+    const aboutMessage = `ClipForge ${version}\n\nA modern video editor built with Electron and React.`;
+
+    dialog
+      .showMessageBox(win!, {
+        type: "info",
+        title: "About ClipForge",
+        message: "ClipForge",
+        detail: aboutMessage,
+        buttons: ["OK"],
+      })
+      .catch(() => {});
   });
 
   if (VITE_DEV_SERVER_URL) {

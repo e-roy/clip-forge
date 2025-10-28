@@ -98,6 +98,16 @@ export interface ElectronAPI {
     autosavePath?: string;
   }>;
   clearCrashFlag: () => Promise<void>;
+
+  // Menu event listeners
+  onTriggerNewProject: (callback: () => void) => void;
+  onTriggerOpenProject: (callback: () => void) => void;
+  onTriggerSave: (callback: () => void) => void;
+  onTriggerSaveAs: (callback: () => void) => void;
+  onTriggerImportMedia: (callback: () => void) => void;
+  onTriggerExport: (callback: () => void) => void;
+  onTriggerSettings: (callback: () => void) => void;
+  onTriggerDeleteSelected: (callback: () => void) => void;
 }
 
 declare global {

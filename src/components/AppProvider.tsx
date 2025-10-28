@@ -4,6 +4,7 @@ import { RecoveryDialog } from "@/components/recovery/RecoveryDialog";
 import { useUIStore } from "@/store/ui";
 import { useTimelineStore } from "@/store/timeline";
 import { useSettingsStore } from "@/store/settings";
+import { useClipsStore } from "@/store/clips";
 
 /**
  * Handles application-level concerns like keyboard shortcuts, project loading, and autosave
@@ -16,10 +17,143 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRecoveryDialogOpen,
   } = useUIStore();
   const { undo, redo, canUndo, canRedo } = useTimelineStore();
+  const { setProjectName, setExportDialogOpen, setSettingsDialogOpen } =
+    useUIStore();
   const { theme } = useSettingsStore();
   const [crashAutosavePath, setCrashAutosavePath] = useState<
     string | undefined
   >();
+
+  // Handle menu events
+  useEffect(() => {
+    if (!window.api) return;
+
+    const handleNewProject = () => {
+      useClipsStore.getState().clearClips();
+      useTimelineStore.setState({
+        items: [],
+        selectedItemId: null,
+        duration: 0,
+      });
+      setProjectName("Untitled Project");
+    };
+
+    const handleOpenProject = async () => {
+      if (!window.api) return;
+      const filePath = await window.api.openProjectDialog();
+      if (filePath) {
+        const projectData = await window.api.loadProject(filePath);
+        if (projectData.success && projectData.data) {
+          const data = JSON.parse(projectData.data);
+          if (data.clips) {
+            useClipsStore.setState({ clips: data.clips });
+          }
+          if (data.timeline) {
+            useTimelineStore.setState(data.timeline);
+          }
+          if (data.ui && data.ui.projectName) {
+            setProjectName(data.ui.projectName);
+          } else {
+            const filename =
+              filePath.split(/[\\/]/).pop() || "Untitled Project";
+            const nameWithoutExt = filename.replace(/\.cforge$/i, "");
+            setProjectName(nameWithoutExt);
+          }
+        }
+      }
+    };
+
+    const handleSave = async () => {
+      if (!window.api) return;
+      const projectJson = JSON.stringify(
+        {
+          clips: useClipsStore.getState().clips,
+          timeline: {
+            items: useTimelineStore.getState().items,
+            tracks: useTimelineStore.getState().tracks,
+          },
+          ui: {
+            projectName: useUIStore.getState().projectName,
+          },
+        },
+        null,
+        2
+      );
+      await window.api.saveProject(projectJson);
+    };
+
+    const handleSaveAs = async () => {
+      if (!window.api) return;
+      const projectName = useUIStore.getState().projectName;
+      const filePath = await window.api.saveFileDialog({
+        filters: [{ name: "ClipForge Project", extensions: ["cforge"] }],
+        defaultPath: projectName + ".cforge",
+      });
+      if (filePath) {
+        const filename = filePath.split(/[\\/]/).pop() || "Untitled Project";
+        const nameWithoutExt = filename.replace(/\.cforge$/i, "");
+        setProjectName(nameWithoutExt);
+
+        const projectJson = JSON.stringify(
+          {
+            clips: useClipsStore.getState().clips,
+            timeline: {
+              items: useTimelineStore.getState().items,
+              tracks: useTimelineStore.getState().tracks,
+            },
+            ui: {
+              projectName: nameWithoutExt,
+            },
+          },
+          null,
+          2
+        );
+        await window.api.saveProjectAs(projectJson, filePath);
+      }
+    };
+
+    const handleImportMedia = async () => {
+      if (!window.api) return;
+      const paths = await window.api.openFileDialog({
+        filters: [{ name: "Media Files", extensions: ["mp4", "mov", "webm"] }],
+      });
+      if (paths.length === 0) return;
+
+      const metas = await window.api.getMediaInfo(paths);
+      useClipsStore.getState().addClips(metas);
+    };
+
+    const handleExport = () => {
+      setExportDialogOpen(true);
+    };
+
+    const handleSettings = () => {
+      setSettingsDialogOpen(true);
+    };
+
+    const handleDeleteSelected = () => {
+      const { selectedItemId, removeItem } = useTimelineStore.getState();
+      if (selectedItemId) {
+        removeItem(selectedItemId);
+      }
+    };
+
+    // Register listeners
+    window.api.onTriggerNewProject(handleNewProject);
+    window.api.onTriggerOpenProject(handleOpenProject);
+    window.api.onTriggerSave(handleSave);
+    window.api.onTriggerSaveAs(handleSaveAs);
+    window.api.onTriggerImportMedia(handleImportMedia);
+    window.api.onTriggerExport(handleExport);
+    window.api.onTriggerSettings(handleSettings);
+    window.api.onTriggerDeleteSelected(handleDeleteSelected);
+
+    // Cleanup function to prevent duplicate listeners
+    return () => {
+      // Note: ipcRenderer.on listeners are automatically cleaned up when the app quits
+      // but we don't need to manually remove them here as they persist for the app lifetime
+    };
+  }, [setProjectName, setExportDialogOpen, setSettingsDialogOpen]);
 
   // Initialize theme on mount
   useEffect(() => {

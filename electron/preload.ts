@@ -51,6 +51,40 @@ const electronAPI: ElectronAPI = {
   checkCrashRecovery: () => ipcRenderer.invoke("check-crash-recovery"),
 
   clearCrashFlag: () => ipcRenderer.invoke("clear-crash-flag"),
+
+  // Menu event listeners
+  onTriggerNewProject: (callback) => {
+    ipcRenderer.removeAllListeners("trigger-new-project");
+    ipcRenderer.on("trigger-new-project", () => callback());
+  },
+  onTriggerOpenProject: (callback) => {
+    ipcRenderer.removeAllListeners("trigger-open-project");
+    ipcRenderer.on("trigger-open-project", () => callback());
+  },
+  onTriggerSave: (callback) => {
+    ipcRenderer.removeAllListeners("trigger-save");
+    ipcRenderer.on("trigger-save", () => callback());
+  },
+  onTriggerSaveAs: (callback) => {
+    ipcRenderer.removeAllListeners("trigger-save-as");
+    ipcRenderer.on("trigger-save-as", () => callback());
+  },
+  onTriggerImportMedia: (callback) => {
+    ipcRenderer.removeAllListeners("trigger-import-media");
+    ipcRenderer.on("trigger-import-media", () => callback());
+  },
+  onTriggerExport: (callback) => {
+    ipcRenderer.removeAllListeners("trigger-export");
+    ipcRenderer.on("trigger-export", () => callback());
+  },
+  onTriggerSettings: (callback) => {
+    ipcRenderer.removeAllListeners("trigger-settings");
+    ipcRenderer.on("trigger-settings", () => callback());
+  },
+  onTriggerDeleteSelected: (callback) => {
+    ipcRenderer.removeAllListeners("trigger-delete-selected");
+    ipcRenderer.on("trigger-delete-selected", () => callback());
+  },
 };
 
 contextBridge.exposeInMainWorld("api", electronAPI);
