@@ -24,6 +24,15 @@ export const useClipsStore = create<ClipsState>((set) => ({
       thumbnail: meta.thumbnail,
     }));
     set((state) => ({ clips: [...state.clips, ...newClips] }));
+
+    // Trigger save after importing clips
+    import("@/store/project")
+      .then(({ useProjectStore }) => {
+        useProjectStore.getState().saveProject();
+      })
+      .catch(() => {
+        // Silently fail if project store not loaded yet
+      });
   },
   removeClip: (id: string) => {
     set((state) => ({ clips: state.clips.filter((c) => c.id !== id) }));

@@ -2,6 +2,21 @@ import { create } from "zustand";
 import type { TimelineItem } from "@/types/timeline";
 import { useClipsStore } from "./clips";
 
+interface TimelineSnapshot {
+  items: TimelineItem[];
+  tracks: Array<{
+    id: string;
+    trackNumber: number;
+    name: string;
+    visible: boolean;
+    locked: boolean;
+    muted: boolean;
+    volume: number;
+  }>;
+  duration: number;
+  selectedItemId: string | null;
+}
+
 interface TimelineState {
   // Project settings
   fps: number;
@@ -31,6 +46,10 @@ interface TimelineState {
     volume: number;
   }>;
 
+  // Undo/Redo
+  history: TimelineSnapshot[];
+  historyIndex: number;
+
   // Actions
   setPlayheadTime: (time: number) => void;
   setPixelsPerSecond: (pps: number) => void;
@@ -49,6 +68,11 @@ interface TimelineState {
   toggleTrackVisibility: (trackId: string) => void;
   toggleTrackLock: (trackId: string) => void;
   toggleTrackMute: (trackId: string) => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+  snapshot: () => void;
 }
 
 export const useTimelineStore = create<TimelineState>((set, get) => {
@@ -79,6 +103,13 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     volume: 1,
   };
 
+  const initialSnapshot: TimelineSnapshot = {
+    items: [],
+    tracks: [track1, track2],
+    duration: 0,
+    selectedItemId: null,
+  };
+
   return {
     fps: 30,
     duration: 0,
@@ -88,6 +119,70 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     selectedItemId: null,
     rippleDelete: false,
     tracks: [track1, track2],
+    history: [initialSnapshot],
+    historyIndex: 0,
+
+    snapshot: () => {
+      const state = get();
+      const newSnapshot: TimelineSnapshot = {
+        items: state.items,
+        tracks: state.tracks,
+        duration: state.duration,
+        selectedItemId: state.selectedItemId,
+      };
+
+      set((prev) => {
+        // Remove any future history if we're not at the end
+        const newHistory = prev.history.slice(0, prev.historyIndex + 1);
+        newHistory.push(newSnapshot);
+
+        // Limit history to 50 entries
+        if (newHistory.length > 50) {
+          newHistory.shift();
+          return { history: newHistory, historyIndex: 49 };
+        }
+
+        return { history: newHistory, historyIndex: newHistory.length - 1 };
+      });
+    },
+
+    undo: () => {
+      const { history, historyIndex } = get();
+      if (historyIndex > 0) {
+        const snapshot = history[historyIndex - 1];
+        set((prev) => ({
+          items: snapshot.items,
+          tracks: snapshot.tracks,
+          duration: snapshot.duration,
+          selectedItemId: snapshot.selectedItemId,
+          historyIndex: prev.historyIndex - 1,
+        }));
+      }
+    },
+
+    redo: () => {
+      const { history, historyIndex } = get();
+      if (historyIndex < history.length - 1) {
+        const snapshot = history[historyIndex + 1];
+        set((prev) => ({
+          items: snapshot.items,
+          tracks: snapshot.tracks,
+          duration: snapshot.duration,
+          selectedItemId: snapshot.selectedItemId,
+          historyIndex: prev.historyIndex + 1,
+        }));
+      }
+    },
+
+    canUndo: () => {
+      const { historyIndex } = get();
+      return historyIndex > 0;
+    },
+
+    canRedo: () => {
+      const { history, historyIndex } = get();
+      return historyIndex < history.length - 1;
+    },
 
     setPlayheadTime: (time: number) => {
       const { duration } = get();
@@ -95,7 +190,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     addItem: (clipId: string, trackId: number = 1) => {
-      const { items, tracks, duration } = get();
+      const { items, tracks, duration, snapshot } = get();
       const clips = useClipsStore.getState().clips;
       const clip = clips.find((c) => c.id === clipId);
 
@@ -104,11 +199,11 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
       const track = tracks.find((t) => t.trackNumber === trackId);
       if (!track) return;
 
-      // Calculate position (append at the end of the specific track)
-      // Find the latest item on this track
-      const trackItems = items.filter((item) => item.trackId === trackId);
-      const lastItem = trackItems.sort((a, b) => b.endTime - a.endTime)[0];
-      const startTime = lastItem ? lastItem.endTime : duration;
+      snapshot();
+
+      // Add clip at playhead position
+      const { playheadTime } = get();
+      const startTime = playheadTime;
 
       const itemDuration = clip.duration;
       const newItem: TimelineItem = {
@@ -128,6 +223,11 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         items: [...items, newItem],
         duration: newDuration,
       });
+
+      // Trigger save after significant action
+      import("@/store/project").then(({ useProjectStore }) => {
+        useProjectStore.getState().saveProject();
+      });
     },
 
     setPixelsPerSecond: (pps: number) => {
@@ -135,9 +235,11 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     removeItem: (itemId: string, ripple = false) => {
-      const { items, rippleDelete, selectedItemId } = get();
+      const { items, rippleDelete, selectedItemId, snapshot } = get();
       const itemToRemove = items.find((item) => item.id === itemId);
       if (!itemToRemove) return;
+
+      snapshot();
 
       const shouldRipple = ripple || rippleDelete;
 
@@ -186,6 +288,11 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
           selectedItemId: selectedItemId === itemId ? null : selectedItemId,
         });
       }
+
+      // Trigger save after significant action
+      import("@/store/project").then(({ useProjectStore }) => {
+        useProjectStore.getState().saveProject();
+      });
     },
 
     selectItem: (itemId: string | null) => {
@@ -193,7 +300,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     splitItemAtPlayhead: (itemId: string, playheadTime: number) => {
-      const { items } = get();
+      const { items, snapshot } = get();
       const item = items.find((i) => i.id === itemId);
       if (!item) return;
 
@@ -201,6 +308,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
       if (playheadTime < item.startTime || playheadTime >= item.endTime) {
         return;
       }
+
+      snapshot();
 
       // Calculate relative time within the clip
       const clipTimeAtSplit = item.inTime + (playheadTime - item.startTime);
@@ -226,6 +335,11 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         .concat(firstHalf, secondHalf);
 
       set({ items: newItems, selectedItemId: secondHalf.id });
+
+      // Trigger save after significant action
+      import("@/store/project").then(({ useProjectStore }) => {
+        useProjectStore.getState().saveProject();
+      });
     },
 
     toggleRippleDelete: () => {
@@ -234,7 +348,19 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     updateItem: (itemId: string, updates: Partial<TimelineItem>) => {
-      const { items } = get();
+      const { items, snapshot } = get();
+
+      // Only snapshot if this is actually changing something
+      const item = items.find((i) => i.id === itemId);
+      if (
+        item &&
+        Object.keys(updates).some(
+          (key) => (item as any)[key] !== (updates as any)[key]
+        )
+      ) {
+        snapshot();
+      }
+
       const newItems = items.map((item) =>
         item.id === itemId ? { ...item, ...updates } : item
       );
@@ -303,7 +429,9 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     addTrack: () => {
-      const { tracks } = get();
+      const { tracks, snapshot } = get();
+      snapshot();
+
       const nextTrackNumber =
         tracks.length > 0
           ? Math.max(...tracks.map((t) => t.trackNumber)) + 1

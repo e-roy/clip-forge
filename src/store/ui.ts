@@ -12,6 +12,8 @@ interface UIState {
   setExportProgressOpen: (open: boolean) => void;
   recorderOpen: boolean;
   setRecorderOpen: (open: boolean) => void;
+  shortcutsDialogOpen: boolean;
+  setShortcutsDialogOpen: (open: boolean) => void;
 
   // Existing UI state
   selectedClipId: string | null;
@@ -32,6 +34,8 @@ export const useUIStore = create<UIState>((set) => ({
   setExportProgressOpen: (open: boolean) => set({ exportProgressOpen: open }),
   recorderOpen: false,
   setRecorderOpen: (open: boolean) => set({ recorderOpen: open }),
+  shortcutsDialogOpen: false,
+  setShortcutsDialogOpen: (open: boolean) => set({ shortcutsDialogOpen: open }),
 
   selectedClipId: null,
   setSelectedClipId: (id: string | null) => set({ selectedClipId: id }),

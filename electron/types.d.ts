@@ -64,6 +64,17 @@ export interface ElectronAPI {
   getAppVersion: () => Promise<string>;
   getDesktopSources: () => Promise<DesktopSource[]>;
   writeRecordingFile: (data: ArrayBuffer, filename: string) => Promise<string>;
+  saveProject: (
+    projectData: string
+  ) => Promise<{ success: boolean; path?: string; error?: string }>;
+  loadProject: (
+    projectPath: string
+  ) => Promise<{ success: boolean; data?: string; error?: string }>;
+  getAutosavePath: () => Promise<string>;
+  listProjects: () => Promise<
+    Array<{ name: string; path: string; modified: number }>
+  >;
+  deleteAutosave: () => Promise<{ success: boolean; error?: string }>;
 }
 
 declare global {

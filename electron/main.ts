@@ -636,6 +636,88 @@ ipcMain.handle("get-app-version", () => {
   return app.getVersion();
 });
 
+// Project save/load handlers
+ipcMain.handle("save-project", async (_, projectData: string) => {
+  try {
+    const projectsDir = path.join(
+      app.getPath("userData"),
+      "ClipForge",
+      "Projects"
+    );
+    await fs.mkdir(projectsDir, { recursive: true });
+
+    // Always save to autosave.cforge for auto-save functionality
+    const projectPath = path.join(projectsDir, "autosave.cforge");
+
+    await fs.writeFile(projectPath, projectData, "utf-8");
+    return { success: true, path: projectPath };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle("load-project", async (_, projectPath: string) => {
+  try {
+    const data = await fs.readFile(projectPath, "utf-8");
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle("get-autosave-path", () => {
+  const projectsDir = path.join(
+    app.getPath("userData"),
+    "ClipForge",
+    "Projects"
+  );
+  return path.join(projectsDir, "autosave.cforge");
+});
+
+ipcMain.handle("delete-autosave", async () => {
+  try {
+    const projectsDir = path.join(
+      app.getPath("userData"),
+      "ClipForge",
+      "Projects"
+    );
+    const autosavePath = path.join(projectsDir, "autosave.cforge");
+    await fs.unlink(autosavePath);
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle("list-projects", async () => {
+  try {
+    const projectsDir = path.join(
+      app.getPath("userData"),
+      "ClipForge",
+      "Projects"
+    );
+    await fs.mkdir(projectsDir, { recursive: true });
+
+    const files = await fs.readdir(projectsDir);
+    const projects = files
+      .filter((file) => file.endsWith(".cforge"))
+      .map((file) => {
+        const filePath = path.join(projectsDir, file);
+        const stats = require("fs").statSync(filePath);
+        return {
+          name: file.replace(".cforge", ""),
+          path: filePath,
+          modified: stats.mtime.getTime(),
+        };
+      })
+      .sort((a, b) => b.modified - a.modified);
+
+    return projects;
+  } catch (error: any) {
+    return [];
+  }
+});
+
 ipcMain.handle("get-desktop-sources", async () => {
   const sources = await desktopCapturer.getSources({
     types: ["window", "screen"],

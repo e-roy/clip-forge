@@ -25,6 +25,16 @@ const electronAPI: ElectronAPI = {
 
   writeRecordingFile: (data, filename) =>
     ipcRenderer.invoke("write-recording-file", data, filename),
+
+  saveProject: (projectData) => ipcRenderer.invoke("save-project", projectData),
+
+  loadProject: (projectPath) => ipcRenderer.invoke("load-project", projectPath),
+
+  getAutosavePath: () => ipcRenderer.invoke("get-autosave-path"),
+
+  listProjects: () => ipcRenderer.invoke("list-projects"),
+
+  deleteAutosave: () => ipcRenderer.invoke("delete-autosave"),
 };
 
 contextBridge.exposeInMainWorld("api", electronAPI);

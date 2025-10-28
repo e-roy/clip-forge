@@ -6,7 +6,7 @@
   "author": "ClipForge Team",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 --timeout 30000 --delay 1000 && cross-env NODE_ENV=development VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "dev": "vite",
     "build": "tsc && vite build && electron-builder",
     "build:app": "vite build && electron-builder",
     "typecheck": "tsc -p tsconfig.json --noEmit",
