@@ -530,45 +530,23 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
         segment.startTime - segment.videoClip.startTime;
       const videoSeekTime = segment.videoClip.inTime + videoClipTimeInSegment;
 
-      if (segment.audioClips.length === 0) {
-        // No audio clips (all muted) - video only with silent audio
-        await new Promise<void>((resolve, reject) => {
-          ffmpegInstance(segment.videoClip.path)
-            .seekInput(videoSeekTime)
-            .duration(segmentDuration)
-            .videoCodec("libx264")
-            .audioCodec("aac")
-            .outputOptions([
-              "-preset veryfast",
-              `-b:v ${bitrateKbps}k`,
-              `-b:a 128k`,
-              `-r ${fps}`,
-              `-vf scale=${targetWidth}:${targetHeight}`,
-              "-pix_fmt yuv420p",
-              "-filter:a volume=0",
-            ])
-            .output(segmentOutputPath)
-            .on("stderr", (stderrLine: string) => {
-              const timeValue = parseFFmpegProgress(stderrLine);
-              if (timeValue !== null && totalDuration > 0) {
-                sendProgress();
-              }
-            })
-            .on("end", () => resolve())
-            .on("error", (err: Error) => reject(err))
-            .run();
-        });
-      } else if (
+      // Determine if we can use the simple case (single clip for both video and audio)
+      const useSimpleCase =
         segment.audioClips.length === 1 &&
-        segment.audioClips[0].path === segment.videoClip.path
-      ) {
+        segment.audioClips[0].path === segment.videoClip.path &&
+        segment.audioClips[0].startTime === segment.videoClip.startTime &&
+        segment.audioClips[0].endTime === segment.videoClip.endTime &&
+        segment.audioClips[0].inTime === segment.videoClip.inTime &&
+        segment.audioClips[0].outTime === segment.videoClip.outTime;
+
+      if (useSimpleCase) {
         // Single clip provides both video and audio - simple case
-        const clip = segment.audioClips[0];
-        const clipTimeInSegment = segment.startTime - clip.startTime;
-        const seekTime = clip.inTime + clipTimeInSegment;
+        const clipTimeInSegment =
+          segment.startTime - segment.videoClip.startTime;
+        const seekTime = segment.videoClip.inTime + clipTimeInSegment;
 
         await new Promise<void>((resolve, reject) => {
-          ffmpegInstance(clip.path)
+          ffmpegInstance(segment.videoClip.path)
             .seekInput(seekTime)
             .duration(segmentDuration)
             .videoCodec("libx264")
@@ -593,7 +571,7 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
             .run();
         });
       } else {
-        // Multiple audio sources or video/audio from different clips - need to mix
+        // Multiple audio sources, no audio, or video/audio from different clips - need complex filter
         const command = ffmpegInstance();
 
         // Add video source as input 0
@@ -630,7 +608,10 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
         );
 
         // Mix audio
-        if (audioInputIndices.length === 1) {
+        if (audioInputIndices.length === 0) {
+          // No audio (all tracks muted) - generate silent audio
+          filterParts.push(`[0:a]volume=0[aout]`);
+        } else if (audioInputIndices.length === 1) {
           // Single audio source
           filterParts.push(`[${audioInputIndices[0]}:a]anull[aout]`);
         } else {
