@@ -437,11 +437,12 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
     await fs.mkdir(tempDir, { recursive: true });
 
     // Build timeline segments
-    // Segment structure: { startTime, endTime, clips: [{ trackId, clipIndex }] }
+    // Each segment has ONE video source (topmost visible item) and potentially multiple audio sources
     const segments: Array<{
       startTime: number;
       endTime: number;
-      clipsByTrack: Map<number, (typeof sortedClips)[0]>;
+      videoClip: (typeof sortedClips)[0];
+      audioClips: (typeof sortedClips)[0][];
     }> = [];
 
     // Create a list of all time boundaries
@@ -456,30 +457,35 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
     for (let i = 0; i < sortedTimes.length - 1; i++) {
       const segmentStart = sortedTimes[i];
       const segmentEnd = sortedTimes[i + 1];
-      const clipsByTrack = new Map<number, (typeof sortedClips)[0]>();
 
       // Find all clips that exist in this time segment (only visible tracks)
-      sortedClips.forEach((clip) => {
+      const activeClips = sortedClips.filter((clip) => {
         // Skip invisible tracks - they should not appear in export (matching preview behavior)
-        if (!clip.visible) return;
+        if (!clip.visible) return false;
 
-        if (clip.startTime <= segmentStart && clip.endTime >= segmentEnd) {
-          // This clip covers this segment
-          // If there's already a clip on this track, keep the one with lower displayOrder (top priority)
-          const existing = clipsByTrack.get(clip.trackId);
-          if (!existing || clip.displayOrder < existing.displayOrder) {
-            clipsByTrack.set(clip.trackId, clip);
-          }
-        }
+        // Check if clip covers this segment
+        return clip.startTime <= segmentStart && clip.endTime >= segmentEnd;
       });
 
-      if (clipsByTrack.size > 0) {
-        segments.push({
-          startTime: segmentStart,
-          endTime: segmentEnd,
-          clipsByTrack,
-        });
-      }
+      if (activeClips.length === 0) continue;
+
+      // Sort by displayOrder to find topmost (lowest displayOrder = top of UI)
+      const sortedActiveClips = [...activeClips].sort(
+        (a, b) => a.displayOrder - b.displayOrder
+      );
+
+      // Topmost clip provides the video
+      const videoClip = sortedActiveClips[0];
+
+      // All unmuted clips provide audio (matching preview behavior)
+      const audioClips = sortedActiveClips.filter((clip) => !clip.muted);
+
+      segments.push({
+        startTime: segmentStart,
+        endTime: segmentEnd,
+        videoClip,
+        audioClips,
+      });
     }
 
     // Calculate total timeline duration for progress tracking
@@ -497,11 +503,6 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
       const segmentOutputPath = path.join(
         tempDir,
         `segment_${processedSegments}.mp4`
-      );
-
-      // Get tracks sorted by displayOrder (top to bottom)
-      const tracks = Array.from(segment.clipsByTrack.entries()).sort(
-        (a, b) => a[1].displayOrder - b[1].displayOrder
       );
 
       // Helper to send progress update
@@ -524,17 +525,50 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
         }
       };
 
-      if (tracks.length === 1) {
-        // Single track - simple trim and encode
-        const [_trackId, clip] = tracks[0];
+      // Calculate seek time for video clip
+      const videoClipTimeInSegment =
+        segment.startTime - segment.videoClip.startTime;
+      const videoSeekTime = segment.videoClip.inTime + videoClipTimeInSegment;
+
+      if (segment.audioClips.length === 0) {
+        // No audio clips (all muted) - video only with silent audio
+        await new Promise<void>((resolve, reject) => {
+          ffmpegInstance(segment.videoClip.path)
+            .seekInput(videoSeekTime)
+            .duration(segmentDuration)
+            .videoCodec("libx264")
+            .audioCodec("aac")
+            .outputOptions([
+              "-preset veryfast",
+              `-b:v ${bitrateKbps}k`,
+              `-b:a 128k`,
+              `-r ${fps}`,
+              `-vf scale=${targetWidth}:${targetHeight}`,
+              "-pix_fmt yuv420p",
+              "-filter:a volume=0",
+            ])
+            .output(segmentOutputPath)
+            .on("stderr", (stderrLine: string) => {
+              const timeValue = parseFFmpegProgress(stderrLine);
+              if (timeValue !== null && totalDuration > 0) {
+                sendProgress();
+              }
+            })
+            .on("end", () => resolve())
+            .on("error", (err: Error) => reject(err))
+            .run();
+        });
+      } else if (
+        segment.audioClips.length === 1 &&
+        segment.audioClips[0].path === segment.videoClip.path
+      ) {
+        // Single clip provides both video and audio - simple case
+        const clip = segment.audioClips[0];
         const clipTimeInSegment = segment.startTime - clip.startTime;
         const seekTime = clip.inTime + clipTimeInSegment;
 
-        // Check if track is muted - if so, we need to output silent audio
-        const isMuted = clip.muted;
-
         await new Promise<void>((resolve, reject) => {
-          let command = ffmpegInstance(clip.path)
+          ffmpegInstance(clip.path)
             .seekInput(seekTime)
             .duration(segmentDuration)
             .videoCodec("libx264")
@@ -546,14 +580,7 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
               `-r ${fps}`,
               `-vf scale=${targetWidth}:${targetHeight}`,
               "-pix_fmt yuv420p",
-            ]);
-
-          // If track is muted, apply volume=0 to silence audio (visual still shows)
-          if (isMuted) {
-            command = command.outputOptions(["-filter:a volume=0"]);
-          }
-
-          command
+            ])
             .output(segmentOutputPath)
             .on("stderr", (stderrLine: string) => {
               const timeValue = parseFFmpegProgress(stderrLine);
@@ -566,60 +593,53 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
             .run();
         });
       } else {
-        // Multiple tracks - need to composite
+        // Multiple audio sources or video/audio from different clips - need to mix
         const command = ffmpegInstance();
 
-        // Add all input files with seeking
-        tracks.forEach(([_trackId, clip]) => {
-          const clipTimeInSegment = segment.startTime - clip.startTime;
-          const seekTime = clip.inTime + clipTimeInSegment;
-          command.input(clip.path).seekInput(seekTime);
+        // Add video source as input 0
+        command.input(segment.videoClip.path).seekInput(videoSeekTime);
+
+        // Add audio sources (may include the video clip if it's also in audioClips)
+        const audioInputIndices: number[] = [];
+        let nextInputIndex = 1; // Start at 1 because input 0 is video
+
+        segment.audioClips.forEach((audioClip) => {
+          const audioClipTimeInSegment =
+            segment.startTime - audioClip.startTime;
+          const audioSeekTime = audioClip.inTime + audioClipTimeInSegment;
+
+          // Check if this is the same as video clip (already added as input 0)
+          if (
+            audioClip.path === segment.videoClip.path &&
+            audioSeekTime === videoSeekTime
+          ) {
+            audioInputIndices.push(0);
+          } else {
+            command.input(audioClip.path).seekInput(audioSeekTime);
+            audioInputIndices.push(nextInputIndex);
+            nextInputIndex++;
+          }
         });
 
-        // Build filter complex for overlaying
+        // Build filter complex
         const filterParts: string[] = [];
 
-        // Scale all inputs to target resolution
-        tracks.forEach((_track, index) => {
-          filterParts.push(
-            `[${index}:v]scale=${targetWidth}:${targetHeight},setpts=PTS-STARTPTS[v${index}]`
-          );
-        });
+        // Scale video to target resolution
+        filterParts.push(
+          `[0:v]scale=${targetWidth}:${targetHeight},setpts=PTS-STARTPTS[vout]`
+        );
 
-        // Overlay tracks (lower displayOrder = base, higher displayOrder on top)
-        // Input 0 is base layer (lowest displayOrder), subsequent inputs overlay
-        let currentOutput = "v0";
-        for (let i = 1; i < tracks.length; i++) {
-          const nextOutput = i === tracks.length - 1 ? "vout" : `vtmp${i}`;
-          filterParts.push(
-            `[${currentOutput}][v${i}]overlay=0:0[${nextOutput}]`
-          );
-          currentOutput = nextOutput;
-        }
-
-        // Mix audio from unmuted tracks only
-        // Muted tracks still show visually but contribute no audio (matching preview behavior)
-        const unmutedTracks = tracks.filter(([_trackId, clip]) => !clip.muted);
-
-        let audioMixFilter: string;
-        if (unmutedTracks.length === 0) {
-          // All tracks muted - output silent audio
-          audioMixFilter = `[0:a]anull[aout]`;
-        } else if (unmutedTracks.length === 1) {
-          // Single unmuted track - pass through with volume applied
-          const unmutedIndex = tracks.indexOf(unmutedTracks[0]);
-          // Note: Volume adjustment would go here when implemented
-          audioMixFilter = `[${unmutedIndex}:a]anull[aout]`;
+        // Mix audio
+        if (audioInputIndices.length === 1) {
+          // Single audio source
+          filterParts.push(`[${audioInputIndices[0]}:a]anull[aout]`);
         } else {
-          // Multiple unmuted tracks - mix them
-          const unmutedIndices = unmutedTracks.map((track) =>
-            tracks.indexOf(track)
+          // Multiple audio sources - mix them
+          const audioInputs = audioInputIndices.map((i) => `[${i}:a]`).join("");
+          filterParts.push(
+            `${audioInputs}amix=inputs=${audioInputIndices.length}:duration=first[aout]`
           );
-          const audioInputs = unmutedIndices.map((i) => `[${i}:a]`).join("");
-          // Note: Volume levels would be applied here when implemented
-          audioMixFilter = `${audioInputs}amix=inputs=${unmutedIndices.length}:duration=first[aout]`;
         }
-        filterParts.push(audioMixFilter);
 
         const filterComplex = filterParts.join(";");
 
