@@ -276,6 +276,24 @@ ipcMain.handle("get-media-info", async (_, filePaths: string[]) => {
         continue;
       }
 
+      // Extract audio stream for sample rate
+      const audioStream = metadata.streams.find(
+        (s: { codec_type: string }) => s.codec_type === "audio"
+      );
+      const audioSampleRate = audioStream?.sample_rate || 48000; // Default to 48kHz
+
+      // Extract frame rate (r_frame_rate or avg_frame_rate)
+      // r_frame_rate is the lowest frame rate with the greatest time precision
+      // avg_frame_rate is the average frame rate
+      let frameRate: number | undefined;
+      if (videoStream.r_frame_rate) {
+        const [num, den] = videoStream.r_frame_rate.split("/").map(Number);
+        frameRate = num / den;
+      } else if (videoStream.avg_frame_rate) {
+        const [num, den] = videoStream.avg_frame_rate.split("/").map(Number);
+        frameRate = num / den;
+      }
+
       // Calculate duration
       const duration = metadata.format.duration || 0;
 
@@ -339,6 +357,8 @@ ipcMain.handle("get-media-info", async (_, filePaths: string[]) => {
         fileSize,
         resolution: { width, height },
         thumbnail,
+        audioSampleRate,
+        frameRate,
       });
     } catch (error) {
       // Continue with other files

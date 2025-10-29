@@ -11,4 +11,6 @@ export interface Clip {
     height: number;
   };
   thumbnail?: string;
+  audioSampleRate?: number;
+  frameRate?: number;
 }

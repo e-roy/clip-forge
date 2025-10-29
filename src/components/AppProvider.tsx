@@ -28,10 +28,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!window.api) return;
 
-    const handleNewProject = () => {
+    const handleNewProject = async () => {
       useClipsStore.getState().clearClips();
       useTimelineStore.getState().reset();
       setProjectName("Untitled Project");
+
+      // Save the cleared state to disk immediately
+      if (window.api) {
+        const { useProjectStore } = await import("@/store/project");
+        await useProjectStore.getState().saveProject();
+      }
     };
 
     const handleOpenProject = async () => {

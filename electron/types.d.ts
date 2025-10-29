@@ -43,6 +43,8 @@ export interface ClipMeta {
     height: number;
   };
   thumbnail?: string;
+  audioSampleRate?: number;
+  frameRate?: number;
 }
 
 // Define the IPC API surface exposed via contextBridge
