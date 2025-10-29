@@ -1,9 +1,10 @@
 import { Button } from "@/components/ui/button";
-import { FilmIcon, Video as VideoIcon, Download } from "lucide-react";
+import { FilmIcon, Video as VideoIcon, Download, Settings } from "lucide-react";
 import { ExportDialog } from "@/components/export/ExportDialog";
 import { ExportProgress } from "@/components/export/ExportProgress";
 import { Recorder } from "@/components/recorder/Recorder";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
+import { ProjectSettingsDialog } from "@/components/project/ProjectSettingsDialog";
 import { useUIStore } from "@/store/ui";
 import { useTimelineStore } from "@/store/timeline";
 import { useExport } from "@/lib/useExport";
@@ -16,10 +17,12 @@ export function Header() {
     exportProgressOpen,
     recorderOpen,
     settingsDialogOpen,
+    projectSettingsDialogOpen,
     setExportDialogOpen,
     setExportProgressOpen,
     setRecorderOpen,
     setSettingsDialogOpen,
+    setProjectSettingsDialogOpen,
   } = useUIStore();
   const { items } = useTimelineStore();
   const { handleStartExport } = useExport();
@@ -40,6 +43,14 @@ export function Header() {
             size="icon"
           >
             <VideoIcon className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setProjectSettingsDialogOpen(true)}
+            title="Project settings"
+            size="sm"
+          >
+            <Settings className="h-4 w-4" />
           </Button>
           <Button
             variant="outline"
@@ -79,6 +90,10 @@ export function Header() {
       <SettingsDialog
         open={settingsDialogOpen}
         onOpenChange={setSettingsDialogOpen}
+      />
+      <ProjectSettingsDialog
+        open={projectSettingsDialogOpen}
+        onOpenChange={setProjectSettingsDialogOpen}
       />
     </>
   );

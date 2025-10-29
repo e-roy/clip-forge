@@ -77,6 +77,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ui: {
             projectName: useUIStore.getState().projectName,
           },
+          compositionDurationSec: (
+            await import("@/store/project")
+          ).useProjectStore.getState().compositionDurationSec,
         },
         null,
         2
@@ -106,6 +109,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ui: {
               projectName: nameWithoutExt,
             },
+            compositionDurationSec: (
+              await import("@/store/project")
+            ).useProjectStore.getState().compositionDurationSec,
           },
           null,
           2
@@ -177,8 +183,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             setCrashAutosavePath(crashInfo.autosavePath);
             setRecoveryDialogOpen(true);
           }
+          // Mark app as started after recovery check completes
+          // This sets the crash flag for the current session
+          await window.api.markAppStarted();
         } catch (error) {
           console.error("Failed to check crash recovery:", error);
+          // Still mark app as started even if recovery check fails
+          try {
+            await window.api.markAppStarted();
+          } catch (markError) {
+            console.error("Failed to mark app as started:", markError);
+          }
         }
       };
       checkCrash();
@@ -320,6 +335,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               ui: {
                 projectName: useUIStore.getState().projectName,
               },
+              compositionDurationSec: (
+                require("@/store/project").useProjectStore as any
+              ).getState().compositionDurationSec,
             },
             null,
             2
@@ -362,6 +380,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                     ui: {
                       projectName: nameWithoutExt,
                     },
+                    compositionDurationSec: (
+                      require("@/store/project").useProjectStore as any
+                    ).getState().compositionDurationSec,
                   },
                   null,
                   2

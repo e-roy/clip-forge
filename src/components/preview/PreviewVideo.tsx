@@ -12,7 +12,7 @@ interface PreviewVideoProps {
 export function PreviewVideo({
   videoRef,
   selectedClip,
-  activeItem,
+  // activeItem,
   fitToWindow,
   onVideoEnded,
 }: PreviewVideoProps) {
@@ -35,17 +35,23 @@ export function PreviewVideo({
   }
 
   return (
-    <div className="flex h-full flex-col bg-secondary/20">
+    <div className="flex h-full w-full flex-col bg-secondary/20">
       {/* Video Player */}
-      <div className="relative flex flex-1 items-center justify-center overflow-hidden p-4">
+      <div
+        className={`relative flex h-full w-full items-center justify-center overflow-hidden ${
+          fitToWindow ? "" : "p-4"
+        }`}
+      >
         {/* Video */}
         <video
           ref={videoRef}
           onEnded={onVideoEnded}
           onError={(e) => console.error("Video playback error:", e)}
           className={`${
-            fitToWindow ? "max-h-full max-w-full" : "h-full w-full"
-          } object-contain`}
+            fitToWindow
+              ? "h-full w-full object-cover"
+              : "max-h-full max-w-full object-contain"
+          }`}
           style={{ display: "block" }}
           controls={false}
           playsInline

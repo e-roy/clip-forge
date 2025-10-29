@@ -10,6 +10,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { useTimelineStore } from "@/store/timeline";
+import { useUIStore } from "@/store/ui";
 import { Card } from "@/components/ui/card";
 
 interface ExportDialogProps {
@@ -50,6 +51,7 @@ export function ExportDialog({
   onStartExport,
 }: ExportDialogProps) {
   const { items } = useTimelineStore();
+  const { setAlertDialog } = useUIStore();
   const [resolution, setResolution] = useState<"720p" | "1080p" | "source">(
     "1080p"
   );
@@ -72,7 +74,7 @@ export function ExportDialog({
 
   const handleExport = async () => {
     if (!outputPath) {
-      alert("Please select an output path");
+      setAlertDialog("Output Path Required", "Please select an output path");
       return;
     }
 

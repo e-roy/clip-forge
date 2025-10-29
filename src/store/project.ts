@@ -22,6 +22,8 @@ interface ProjectData {
   ui: {
     projectName: string;
   };
+  // Composition duration in seconds (persistent, user-adjustable)
+  compositionDurationSec: number;
 }
 
 interface ProjectState {
@@ -37,6 +39,10 @@ interface ProjectState {
   loadProject: () => Promise<void>;
   startAutoSave: () => void;
   stopAutoSave: () => void;
+  // Composition duration
+  compositionDurationSec: number;
+  setCompositionDuration: (seconds: number) => void;
+  autoExpandComposition: (toEndTime: number) => void;
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => {
@@ -68,6 +74,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         ui: {
           projectName: ui.projectName,
         },
+        compositionDurationSec: get().compositionDurationSec,
       };
 
       const projectJson = JSON.stringify(projectData, null, 2);
@@ -154,6 +161,14 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           });
         }
 
+        // Restore composition duration (default to 60s if missing)
+        set({
+          compositionDurationSec:
+            typeof projectData.compositionDurationSec === "number"
+              ? Math.max(0, projectData.compositionDurationSec)
+              : 60,
+        });
+
         set({ hasUnsavedChanges: false, isLoading: false, loadError: null });
         console.log("Project loaded successfully");
       } else {
@@ -209,11 +224,21 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     hasUnsavedChanges: false,
     lastSaveTime: null,
     autoSaveInterval: null,
+    compositionDurationSec: 60,
     setHasUnsavedChanges: (hasChanges: boolean) =>
       set({ hasUnsavedChanges: hasChanges }),
     saveProject,
     loadProject,
     startAutoSave,
     stopAutoSave,
+    setCompositionDuration: (seconds: number) =>
+      set({ compositionDurationSec: Math.max(0, seconds) }),
+    autoExpandComposition: (toEndTime: number) =>
+      set((state) => ({
+        compositionDurationSec: Math.max(
+          state.compositionDurationSec,
+          toEndTime
+        ),
+      })),
   };
 });

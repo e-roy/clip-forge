@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { TimelineItem } from "@/types/timeline";
 import { useClipsStore } from "./clips";
+import { useProjectStore } from "./project";
 
 interface TimelineSnapshot {
   items: TimelineItem[];
@@ -204,8 +205,9 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     setPlayheadTime: (time: number) => {
-      const { duration } = get();
-      set({ playheadTime: Math.max(0, Math.min(time, duration)) });
+      const compositionDuration =
+        useProjectStore.getState().compositionDurationSec;
+      set({ playheadTime: Math.max(0, Math.min(time, compositionDuration)) });
     },
 
     addItem: (clipId: string, trackId: number = 1) => {
@@ -242,6 +244,9 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         items: [...items, newItem],
         duration: newDuration,
       });
+
+      // Auto-expand composition if needed
+      useProjectStore.getState().autoExpandComposition(newItem.endTime);
 
       // Trigger save after significant action
       import("@/store/project").then(({ useProjectStore }) => {
@@ -398,6 +403,12 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         items: newItems,
         duration: newDuration,
       });
+
+      // Auto-expand composition if needed
+      if (newItems.length > 0) {
+        const maxEnd = Math.max(...newItems.map((i) => i.endTime));
+        useProjectStore.getState().autoExpandComposition(maxEnd);
+      }
     },
 
     getItemsForTrack: (trackId: number) => {

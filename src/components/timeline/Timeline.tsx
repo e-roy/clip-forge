@@ -1,12 +1,19 @@
 import { useCallback, useState, useEffect, useRef } from "react";
 import { useTimelineStore } from "@/store/timeline";
 import { useUIStore } from "@/store/ui";
+import { useProjectStore } from "@/store/project";
 import { Ruler } from "./Ruler";
 import { Track } from "./Track";
 import { TrackControls } from "./TrackControls";
 import { Toggle } from "@/components/ui/toggle";
 import { Button } from "@/components/ui/button";
-import { Grid3x3, Plus, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  Grid3x3,
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  Scissors,
+} from "lucide-react";
 
 const TRACK_HEIGHT = 60;
 const SNAP_GRID = 0.25; // 0.25 second snap grid
@@ -25,7 +32,9 @@ export function Timeline() {
     toggleRippleDelete,
     tracks,
     addTrack,
+    items,
   } = useTimelineStore();
+  const { compositionDurationSec, setCompositionDuration } = useProjectStore();
 
   const { showGrid, toggleGrid, snapToGrid, toggleSnapToGrid } = useUIStore();
   const [dragOver, setDragOver] = useState(false);
@@ -117,7 +126,26 @@ export function Timeline() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [selectItem]);
 
-  const width = Math.max(duration * pixelsPerSecond, 800);
+  const totalTimelineSeconds = Math.max(duration, compositionDurationSec);
+  const width = Math.max(totalTimelineSeconds * pixelsPerSecond, 800);
+
+  // Check if split is possible (playhead must be within selected item bounds)
+  const canSplit =
+    selectedItemId !== null &&
+    (() => {
+      const selectedItem = items.find((item) => item.id === selectedItemId);
+      if (!selectedItem) return false;
+      return (
+        playheadTime >= selectedItem.startTime &&
+        playheadTime < selectedItem.endTime
+      );
+    })();
+
+  const handleSplit = () => {
+    if (selectedItemId && canSplit) {
+      splitItemAtPlayhead(selectedItemId, playheadTime);
+    }
+  };
 
   return (
     <div
@@ -130,8 +158,36 @@ export function Timeline() {
     >
       {/* Header info */}
       <div className="flex h-10 items-center justify-between border-b border-border px-2 text-xs text-muted-foreground">
-        <div className="flex items-center gap-2"></div>
+        <div className="flex items-center gap-2">
+          {/* Composition duration quick edit */}
+          <div className="ml-2 flex items-center gap-1">
+            <div className="text-xs">Comp:</div>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              className="h-6 w-16 rounded border border-border bg-background px-1 text-xs"
+              value={Math.round(compositionDurationSec)}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (!Number.isNaN(v)) setCompositionDuration(Math.max(0, v));
+              }}
+              title="Composition duration (seconds)"
+            />
+            <div className="text-xs">s</div>
+          </div>
+        </div>
         <div className="flex items-center gap-2 px-4">
+          <Button
+            onClick={handleSplit}
+            disabled={!canSplit}
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0"
+            title="Split clip at playhead (S)"
+          >
+            <Scissors className="h-3.5 w-3.5" />
+          </Button>
           <Toggle
             pressed={showGrid}
             onPressedChange={toggleGrid}
@@ -156,6 +212,7 @@ export function Timeline() {
           >
             Ripple
           </Toggle>
+
           <div className="flex items-center gap-1">
             <Button
               onClick={() => setPixelsPerSecond(pixelsPerSecond - 20)}
@@ -226,9 +283,9 @@ export function Timeline() {
             {/* Ruler */}
             <div className="sticky top-0 z-10">
               <Ruler
-                width={width}
                 pixelsPerSecond={pixelsPerSecond}
                 snapGrid={SNAP_GRID}
+                durationSeconds={totalTimelineSeconds}
               />
             </div>
 
@@ -249,7 +306,7 @@ export function Timeline() {
       </div>
 
       {/* Empty state */}
-      {duration === 0 && (
+      {items.length === 0 && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="text-center text-sm text-muted-foreground">
             <p>Drag clips from Library to Timeline</p>

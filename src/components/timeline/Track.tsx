@@ -26,6 +26,7 @@ export function Track({
     items,
     updateItem,
     tracks,
+    selectItem,
   } = useTimelineStore();
   const { showGrid } = useUIStore();
   const trackItems = getItemsForTrack(trackId);
@@ -92,6 +93,12 @@ export function Track({
     }
   };
 
+  const handleTrackClick = () => {
+    // Only deselect if clicking directly on the track (not on a clip)
+    // TrackItem clicks use stopPropagation, so they won't trigger this
+    selectItem(null);
+  };
+
   return (
     <div
       data-track-id={trackId}
@@ -102,6 +109,7 @@ export function Track({
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
+      onClick={handleTrackClick}
     >
       {/* Minor grid lines */}
       {gridLines

@@ -3,6 +3,7 @@ export interface ExportJob {
   resolution: "720p" | "1080p" | "source";
   fps: number;
   bitrateKbps: number;
+  compositionDurationSec: number;
   clips: Array<{
     path: string;
     inTime: number;
@@ -104,6 +105,7 @@ export interface ElectronAPI {
     autosavePath?: string;
   }>;
   clearCrashFlag: () => Promise<void>;
+  markAppStarted: () => Promise<void>;
 
   // Menu event listeners
   onTriggerNewProject: (callback: () => void) => void;

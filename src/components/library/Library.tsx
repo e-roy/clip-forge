@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { FolderIcon, XIcon } from "lucide-react";
+import { FolderIcon } from "lucide-react";
 import { useClipsStore } from "@/store/clips";
 import { useUIStore } from "@/store/ui";
 import { ClipCard } from "./ClipCard";
@@ -113,17 +113,6 @@ export function Library() {
             >
               <FolderIcon className="h-4 w-4" />
             </Button>
-            {clips.length > 0 && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => useClipsStore.getState().clearClips()}
-                className="h-6 w-6"
-                title="Clear all clips"
-              >
-                <XIcon className="h-4 w-4" />
-              </Button>
-            )}
           </div>
         </div>
       </div>

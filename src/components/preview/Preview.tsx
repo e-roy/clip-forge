@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useUIStore } from "@/store/ui";
 import { useClipsStore } from "@/store/clips";
 import { useTimelineStore } from "@/store/timeline";
+import { useProjectStore } from "@/store/project";
 import { useVideoPlayback } from "@/lib/useVideoPlayback";
 import { useAudioMixer } from "@/lib/useAudioMixer";
 import { usePlayheadSync } from "@/lib/usePlayheadSync";
@@ -10,7 +11,7 @@ import { PreviewVideo } from "./PreviewVideo";
 import { PreviewControls } from "./PreviewControls";
 
 export function Preview() {
-  const { selectedClipId } = useUIStore();
+  const { selectedClipId, fitToWindow, setFitToWindow } = useUIStore();
   const { clips } = useClipsStore();
   const {
     playheadTime,
@@ -21,10 +22,10 @@ export function Preview() {
     masterVolume,
     setMasterVolume,
   } = useTimelineStore();
+  const { compositionDurationSec } = useProjectStore();
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [fitToWindow, setFitToWindow] = useState(true);
 
   // Get the topmost active item at the current playhead time (for video display)
   const activeItem = useMemo(
@@ -112,24 +113,26 @@ export function Preview() {
 
   // Handle skip forward
   const handleSkipForward = useCallback(() => {
-    setPlayheadTime(Math.min(timelineDuration, playheadTime + 1));
-  }, [playheadTime, timelineDuration, setPlayheadTime]);
+    const end = Math.max(timelineDuration, compositionDurationSec);
+    setPlayheadTime(Math.min(end, playheadTime + 1));
+  }, [playheadTime, timelineDuration, compositionDurationSec, setPlayheadTime]);
 
   // Handle video ended
   const handleVideoEnded = useCallback(() => {
     if (!activeItem) return;
 
     const nextTime = activeItem.endTime;
-    if (nextTime >= timelineDuration) {
-      setPlayheadTime(timelineDuration);
+    const end = Math.max(timelineDuration, compositionDurationSec);
+    if (nextTime >= end) {
+      setPlayheadTime(end);
       setIsPlaying(false);
     } else {
       setPlayheadTime(nextTime);
     }
-  }, [activeItem, timelineDuration, setPlayheadTime]);
+  }, [activeItem, timelineDuration, compositionDurationSec, setPlayheadTime]);
 
   return (
-    <div className="flex h-full flex-col bg-secondary/20">
+    <div className="group relative h-full w-full overflow-hidden bg-secondary/20">
       <PreviewVideo
         videoRef={videoRef}
         selectedClip={selectedClip}
@@ -139,7 +142,7 @@ export function Preview() {
       />
       <PreviewControls
         playheadTime={playheadTime}
-        timelineDuration={timelineDuration}
+        timelineDuration={Math.max(timelineDuration, compositionDurationSec)}
         isPlaying={isPlaying}
         isMuted={isMuted}
         masterVolume={masterVolume}

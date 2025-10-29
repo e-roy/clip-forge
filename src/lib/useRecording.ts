@@ -3,7 +3,7 @@ import { useUIStore } from "@/store/ui";
 
 export function useRecording() {
   const { addClips } = useClipsStore();
-  const { setRecorderOpen } = useUIStore();
+  const { setRecorderOpen, setAlertDialog } = useUIStore();
 
   const handleRecordingDone = async (filePath: string) => {
     try {
@@ -14,7 +14,8 @@ export function useRecording() {
       }
       setRecorderOpen(false);
     } catch (error) {
-      alert(
+      setAlertDialog(
+        "Recording Saved",
         "Recording saved but failed to add to library. You may need to manually import it."
       );
       setRecorderOpen(false);

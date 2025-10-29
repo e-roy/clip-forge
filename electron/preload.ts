@@ -52,6 +52,8 @@ const electronAPI: ElectronAPI = {
 
   clearCrashFlag: () => ipcRenderer.invoke("clear-crash-flag"),
 
+  markAppStarted: () => ipcRenderer.invoke("mark-app-started"),
+
   // Menu event listeners
   onTriggerNewProject: (callback) => {
     ipcRenderer.removeAllListeners("trigger-new-project");

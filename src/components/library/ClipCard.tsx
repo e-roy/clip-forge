@@ -37,27 +37,32 @@ export function ClipCard({
         e.dataTransfer.setData("text/plain", clip.id);
       }}
       onClick={onSelect}
-      className={`group relative w-full cursor-pointer rounded-lg border p-2 transition-colors ${
+      className={`group relative w-full cursor-pointer rounded-lg p-2 transition-colors ${
         isSelected
           ? "border-primary bg-accent"
-          : "border-border bg-card hover:bg-accent"
+          : "hover:bg-accent hover:shadow-md"
       }`}
       style={{ maxWidth: "100%", boxSizing: "border-box" }}
     >
       <div className="grid grid-cols-[80px_1fr] gap-2">
-        {clip.thumbnail ? (
-          <img
-            src={clip.thumbnail}
-            alt={clip.name}
-            className="h-16 w-20 rounded object-cover"
-          />
-        ) : (
-          <div className="flex h-16 w-20 items-center justify-center rounded bg-muted text-xs text-muted-foreground text-center leading-tight">
-            No thumb
+        <div className="relative h-16 w-20">
+          {clip.thumbnail ? (
+            <img
+              src={clip.thumbnail}
+              alt={clip.name}
+              className="h-full w-full rounded object-cover"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center rounded bg-muted text-xs text-muted-foreground text-center leading-tight">
+              No thumb
+            </div>
+          )}
+          <div className="absolute bottom-1 right-1 rounded bg-black/75 px-1 py-0.5 text-xs font-medium text-white">
+            {formatDuration(clip.duration)}
           </div>
-        )}
+        </div>
         <div
-          className="space-y-1 pr-7"
+          className="pr-7 space-y-1"
           style={{
             overflow: "hidden",
             minWidth: 0,
@@ -74,7 +79,6 @@ export function ClipCard({
             </TooltipContent>
           </Tooltip>
           <div className="space-y-0.5 text-xs text-muted-foreground">
-            <p className="truncate">{formatDuration(clip.duration)}</p>
             {clip.resolution && (
               <p className="truncate">
                 {clip.resolution.width}×{clip.resolution.height}

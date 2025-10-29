@@ -6,6 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useUIStore } from "@/store/ui";
 import { SourceSelector } from "./SourceSelector";
 import { RecordingPreview } from "./RecordingPreview";
 
@@ -28,6 +29,7 @@ export function Recorder({
   onRecorded,
   onRecordedCallback,
 }: RecorderProps) {
+  const { setAlertDialog } = useUIStore();
   const [sources, setSources] = useState<DesktopSource[]>([]);
   const [selectedSource, setSelectedSource] = useState<string>("");
   const [isRecording, setIsRecording] = useState(false);
@@ -115,7 +117,10 @@ export function Recorder({
       console.error("Failed to add webcam overlay:", error);
       setIsRecordingWebcam(false);
       isRecordingWebcamRef.current = false;
-      alert("Failed to add webcam. Make sure you granted camera permissions.");
+      setAlertDialog(
+        "Webcam Error",
+        "Failed to add webcam. Make sure you granted camera permissions."
+      );
     } finally {
       setIsLoading(false);
     }
@@ -306,7 +311,8 @@ export function Recorder({
       console.error("Failed to start webcam recording:", error);
       setIsRecordingWebcam(false);
       isRecordingWebcamRef.current = false;
-      alert(
+      setAlertDialog(
+        "Webcam Recording Error",
         "Failed to start webcam recording. Make sure you granted camera/mic permissions."
       );
     } finally {
@@ -387,7 +393,8 @@ export function Recorder({
       console.error("Failed to start screen recording:", error);
       setIsRecording(false);
       isRecordingRef.current = false;
-      alert(
+      setAlertDialog(
+        "Screen Recording Error",
         "Failed to start screen recording. Make sure you selected a source."
       );
     } finally {

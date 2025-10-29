@@ -388,7 +388,14 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
   const startTime = Date.now();
 
   try {
-    const { outputPath, resolution, fps, bitrateKbps, clips } = payload;
+    const {
+      outputPath,
+      resolution,
+      fps,
+      bitrateKbps,
+      clips,
+      compositionDurationSec,
+    } = payload;
 
     if (clips.length === 0) {
       throw new Error("No clips to export");
@@ -441,12 +448,14 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
     const segments: Array<{
       startTime: number;
       endTime: number;
-      videoClip: (typeof sortedClips)[0];
+      videoClip: (typeof sortedClips)[0] | null;
       audioClips: (typeof sortedClips)[0][];
     }> = [];
 
-    // Create a list of all time boundaries
+    // Create a list of all time boundaries (include 0 and composition end)
     const timeBoundaries = new Set<number>();
+    timeBoundaries.add(0);
+    timeBoundaries.add(Math.max(0, compositionDurationSec || 0));
     sortedClips.forEach((clip) => {
       timeBoundaries.add(clip.startTime);
       timeBoundaries.add(clip.endTime);
@@ -467,7 +476,16 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
         return clip.startTime <= segmentStart && clip.endTime >= segmentEnd;
       });
 
-      if (activeClips.length === 0) continue;
+      if (activeClips.length === 0) {
+        // Gap segment: generate black video + silence
+        segments.push({
+          startTime: segmentStart,
+          endTime: segmentEnd,
+          videoClip: null,
+          audioClips: [],
+        });
+        continue;
+      }
 
       // Sort by displayOrder to find topmost (lowest displayOrder = top of UI)
       const sortedActiveClips = [...activeClips].sort(
@@ -525,28 +543,55 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
         }
       };
 
+      // Handle gap segments (no video/audio clips)
+      if (!segment.videoClip) {
+        await new Promise<void>((resolve, reject) => {
+          ffmpegInstance()
+            .input(
+              `color=c=black:s=${targetWidth}x${targetHeight}:r=${fps}:d=${segmentDuration}`
+            )
+            .inputOptions(["-f", "lavfi"])
+            .input(`anullsrc=r=48000:cl=stereo`)
+            .inputOptions(["-f", "lavfi"])
+            .outputOptions([
+              "-shortest",
+              "-pix_fmt yuv420p",
+              `-r ${fps}`,
+              `-b:v ${bitrateKbps}k`,
+              `-b:a 128k`,
+            ])
+            .output(segmentOutputPath)
+            .on("end", () => resolve())
+            .on("error", (err: Error) => reject(err))
+            .run();
+        });
+
+        segmentFiles.push(segmentOutputPath);
+        processedSegments++;
+        continue;
+      }
+
       // Calculate seek time for video clip
-      const videoClipTimeInSegment =
-        segment.startTime - segment.videoClip.startTime;
-      const videoSeekTime = segment.videoClip.inTime + videoClipTimeInSegment;
+      const videoClip = segment.videoClip!;
+      const videoClipTimeInSegment = segment.startTime - videoClip.startTime;
+      const videoSeekTime = videoClip.inTime + videoClipTimeInSegment;
 
       // Determine if we can use the simple case (single clip for both video and audio)
       const useSimpleCase =
         segment.audioClips.length === 1 &&
-        segment.audioClips[0].path === segment.videoClip.path &&
-        segment.audioClips[0].startTime === segment.videoClip.startTime &&
-        segment.audioClips[0].endTime === segment.videoClip.endTime &&
-        segment.audioClips[0].inTime === segment.videoClip.inTime &&
-        segment.audioClips[0].outTime === segment.videoClip.outTime;
+        segment.audioClips[0].path === videoClip.path &&
+        segment.audioClips[0].startTime === videoClip.startTime &&
+        segment.audioClips[0].endTime === videoClip.endTime &&
+        segment.audioClips[0].inTime === videoClip.inTime &&
+        segment.audioClips[0].outTime === videoClip.outTime;
 
       if (useSimpleCase) {
         // Single clip provides both video and audio - simple case
-        const clipTimeInSegment =
-          segment.startTime - segment.videoClip.startTime;
-        const seekTime = segment.videoClip.inTime + clipTimeInSegment;
+        const clipTimeInSegment = segment.startTime - videoClip.startTime;
+        const seekTime = videoClip.inTime + clipTimeInSegment;
 
         await new Promise<void>((resolve, reject) => {
-          ffmpegInstance(segment.videoClip.path)
+          ffmpegInstance(videoClip.path)
             .seekInput(seekTime)
             .duration(segmentDuration)
             .videoCodec("libx264")
@@ -575,7 +620,7 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
         const command = ffmpegInstance();
 
         // Add video source as input 0
-        command.input(segment.videoClip.path).seekInput(videoSeekTime);
+        command.input(videoClip.path).seekInput(videoSeekTime);
 
         // Add audio sources (may include the video clip if it's also in audioClips)
         const audioInputIndices: number[] = [];
@@ -588,7 +633,7 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
 
           // Check if this is the same as video clip (already added as input 0)
           if (
-            audioClip.path === segment.videoClip.path &&
+            audioClip.path === videoClip.path &&
             audioSeekTime === videoSeekTime
           ) {
             audioInputIndices.push(0);
@@ -830,14 +875,6 @@ ipcMain.handle(
 const getCrashFlagPath = () =>
   path.join(app.getPath("userData"), "ClipForge", ".crash-flag");
 
-// Set crash flag on app start
-app.whenReady().then(() => {
-  const CRASH_FLAG_PATH = getCrashFlagPath();
-  fs.writeFile(CRASH_FLAG_PATH, "true").catch(() => {
-    // Ignore errors
-  });
-});
-
 // Clear crash flag on clean close
 app.on("before-quit", () => {
   const CRASH_FLAG_PATH = getCrashFlagPath();
@@ -1001,6 +1038,15 @@ ipcMain.handle("clear-crash-flag", async () => {
   try {
     const CRASH_FLAG_PATH = getCrashFlagPath();
     await fs.unlink(CRASH_FLAG_PATH);
+  } catch {
+    // Ignore errors
+  }
+});
+
+ipcMain.handle("mark-app-started", async () => {
+  try {
+    const CRASH_FLAG_PATH = getCrashFlagPath();
+    await fs.writeFile(CRASH_FLAG_PATH, "true");
   } catch {
     // Ignore errors
   }

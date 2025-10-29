@@ -4,27 +4,31 @@ import { useUIStore } from "@/store/ui";
 import { getTickInterval, getTimeUnit } from "@/lib/timeline-helpers";
 
 interface RulerProps {
-  width: number;
   pixelsPerSecond: number;
   snapGrid: number;
+  durationSeconds: number;
 }
 
-export function Ruler({ pixelsPerSecond, snapGrid }: RulerProps) {
-  const { playheadTime, duration, setPlayheadTime, fps } = useTimelineStore();
+export function Ruler({
+  pixelsPerSecond,
+  snapGrid,
+  durationSeconds,
+}: RulerProps) {
+  const { playheadTime, setPlayheadTime, fps } = useTimelineStore();
   const { showGrid } = useUIStore();
   const [isScrubbing, setIsScrubbing] = useState(false);
 
-  const tickInterval = getTickInterval(pixelsPerSecond, duration);
+  const tickInterval = getTickInterval(pixelsPerSecond, durationSeconds);
   const timeUnit = getTimeUnit(pixelsPerSecond);
   const ticks: number[] = [];
   const gridLines: number[] = [];
 
-  for (let time = 0; time <= duration; time += tickInterval) {
+  for (let time = 0; time <= durationSeconds; time += tickInterval) {
     ticks.push(time);
   }
 
   // Add grid lines for snapping
-  for (let time = 0; time <= duration; time += snapGrid) {
+  for (let time = 0; time <= durationSeconds; time += snapGrid) {
     gridLines.push(time);
   }
 
@@ -37,10 +41,13 @@ export function Ruler({ pixelsPerSecond, snapGrid }: RulerProps) {
 
       const rect = rulerElement.getBoundingClientRect();
       const x = e.clientX - rect.left;
-      const newTime = Math.max(0, Math.min(duration, x / pixelsPerSecond));
+      const newTime = Math.max(
+        0,
+        Math.min(durationSeconds, x / pixelsPerSecond)
+      );
       setPlayheadTime(newTime);
     },
-    [pixelsPerSecond, setPlayheadTime, duration]
+    [pixelsPerSecond, setPlayheadTime, durationSeconds]
   );
 
   const handleMouseDown = useCallback(
