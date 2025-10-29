@@ -1,15 +1,19 @@
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { FolderIcon } from "lucide-react";
+import { FolderIcon, VideoIcon } from "lucide-react";
 import { useClipsStore } from "@/store/clips";
 import { useUIStore } from "@/store/ui";
 import { ClipCard } from "./ClipCard";
 import type { Clip } from "@/types/clip";
+import { useRecording } from "@/lib/useRecording";
+import { Recorder } from "../recorder/Recorder";
 
 export function Library() {
   const { clips, addClips, removeClip } = useClipsStore();
-  const { setSelectedClipId, selectedClipId } = useUIStore();
+  const { setSelectedClipId, selectedClipId, recorderOpen, setRecorderOpen } =
+    useUIStore();
+  const { handleRecordingDone } = useRecording();
   const [isDragging, setIsDragging] = useState(false);
 
   const handleImport = async () => {
@@ -99,55 +103,73 @@ export function Library() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <div className="border-b border-border p-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">Library</h2>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleImport}
-              className="h-6 w-6"
-              title="Import media files"
-            >
-              <FolderIcon className="h-4 w-4" />
-            </Button>
+    <>
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="border-b border-border px-4 py-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold">Library</h2>
+            <div className="flex items-center gap-4">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setRecorderOpen(true)}
+                className="h-8 w-8"
+                title="Record screen or webcam"
+              >
+                <VideoIcon className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleImport}
+                className="h-8 w-8"
+                title="Import media files"
+              >
+                <FolderIcon className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </div>
+
+        <ScrollArea className="flex-1 overflow-hidden">
+          <div
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`p-4 ${isDragging ? "bg-primary/10" : ""}`}
+          >
+            {clips.length === 0 ? (
+              <div className="mt-4 text-center text-sm text-muted-foreground">
+                <p>No clips imported yet</p>
+                <p className="mt-2 text-xs">
+                  Drag and drop media files here or use the Import button
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {clips.map((clip) => (
+                  <ClipCard
+                    key={clip.id}
+                    clip={clip}
+                    onSelect={() => handleSelectClip(clip)}
+                    onRemove={() => removeClip(clip.id)}
+                    formatDuration={formatDuration}
+                    formatFileSize={formatFileSize}
+                    isSelected={clip.id === selectedClipId}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </ScrollArea>
       </div>
 
-      <ScrollArea className="flex-1 overflow-hidden">
-        <div
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          className={`p-4 ${isDragging ? "bg-primary/10" : ""}`}
-        >
-          {clips.length === 0 ? (
-            <div className="mt-4 text-center text-sm text-muted-foreground">
-              <p>No clips imported yet</p>
-              <p className="mt-2 text-xs">
-                Drag and drop media files here or use the Import button
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {clips.map((clip) => (
-                <ClipCard
-                  key={clip.id}
-                  clip={clip}
-                  onSelect={() => handleSelectClip(clip)}
-                  onRemove={() => removeClip(clip.id)}
-                  formatDuration={formatDuration}
-                  formatFileSize={formatFileSize}
-                  isSelected={clip.id === selectedClipId}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </ScrollArea>
-    </div>
+      <Recorder
+        open={recorderOpen}
+        onOpenChange={setRecorderOpen}
+        onRecorded={handleRecordingDone}
+        onRecordedCallback={() => setRecorderOpen(false)}
+      />
+    </>
   );
 }

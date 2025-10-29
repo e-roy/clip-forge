@@ -46,3 +46,11 @@ export interface CollectResult {
   error?: string;
   collectedAssets?: string[];
 }
+
+// Desktop source for screen recording
+export interface DesktopSource {
+  id: string;
+  name: string;
+  thumbnail: string;
+  type: "screen" | "window" | "camera";
+}

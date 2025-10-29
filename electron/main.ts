@@ -842,16 +842,34 @@ ipcMain.handle("list-projects", async () => {
 });
 
 ipcMain.handle("get-desktop-sources", async () => {
-  const sources = await desktopCapturer.getSources({
-    types: ["window", "screen"],
-    thumbnailSize: { width: 300, height: 200 },
-  });
+  // Get screens and windows separately to reliably categorize them
+  const [screenSources, windowSources] = await Promise.all([
+    desktopCapturer.getSources({
+      types: ["screen"],
+      thumbnailSize: { width: 300, height: 200 },
+    }),
+    desktopCapturer.getSources({
+      types: ["window"],
+      thumbnailSize: { width: 300, height: 200 },
+    }),
+  ]);
 
-  return sources.map((source) => ({
-    id: source.id,
-    name: source.name,
-    thumbnail: source.thumbnail.toDataURL(),
-  }));
+  const allSources = [
+    ...screenSources.map((source) => ({
+      id: source.id,
+      name: source.name,
+      thumbnail: source.thumbnail.toDataURL(),
+      type: "screen" as const,
+    })),
+    ...windowSources.map((source) => ({
+      id: source.id,
+      name: source.name,
+      thumbnail: source.thumbnail.toDataURL(),
+      type: "window" as const,
+    })),
+  ];
+
+  return allSources;
 });
 
 ipcMain.handle(

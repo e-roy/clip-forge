@@ -1,20 +1,15 @@
 import { useState, useEffect, useRef } from "react";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useUIStore } from "@/store/ui";
 import { SourceSelector } from "./SourceSelector";
 import { RecordingPreview } from "./RecordingPreview";
-
-interface DesktopSource {
-  id: string;
-  name: string;
-  thumbnail: string;
-}
+import type { DesktopSource } from "@/types/ipc";
 
 interface RecorderProps {
   open: boolean;
@@ -32,6 +27,11 @@ export function Recorder({
   const { setAlertDialog } = useUIStore();
   const [sources, setSources] = useState<DesktopSource[]>([]);
   const [selectedSource, setSelectedSource] = useState<string>("");
+  const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
+  const [activeTab, setActiveTab] = useState<"screen" | "window" | "camera">(
+    "screen"
+  );
+  const [cameraOverlay, setCameraOverlay] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isRecordingWebcam, setIsRecordingWebcam] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -54,6 +54,14 @@ export function Recorder({
   useEffect(() => {
     if (open) {
       loadSources();
+      loadCameraDevices();
+      // Reset states when dialog opens
+      setCameraOverlay(false);
+      setActiveTab("screen");
+    } else {
+      // Reset states when dialog closes
+      setCameraOverlay(false);
+      setSelectedSource("");
     }
   }, [open]);
 
@@ -61,24 +69,85 @@ export function Recorder({
     try {
       const sources = await window.api.getDesktopSources();
       setSources(sources);
-      if (sources.length > 0) {
-        setSelectedSource(sources[0].id);
+      // Select first source of current tab type
+      const tabSources = sources.filter((s) => s.type === activeTab);
+      if (tabSources.length > 0) {
+        setSelectedSource(tabSources[0].id);
+      } else {
+        setSelectedSource("");
       }
     } catch (error) {
       console.error("Failed to load desktop sources:", error);
     }
   };
 
-  const toggleWebcam = async () => {
-    if (isRecordingWebcam) {
-      stopWebcamRecording();
-    } else {
-      // If we're already recording screen, add webcam as overlay
-      if (isRecording) {
-        await addWebcamOverlay();
+  const loadCameraDevices = async () => {
+    try {
+      // Enumerate devices without requesting permission
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cameras = devices.filter((device) => device.kind === "videoinput");
+      setCameraDevices(cameras);
+
+      // Select first camera if available and camera tab is active
+      if (cameras.length > 0 && activeTab === "camera" && !selectedSource) {
+        setSelectedSource(cameras[0].deviceId);
+      }
+    } catch (error) {
+      console.error("Failed to load camera devices:", error);
+      setCameraDevices([]);
+    }
+  };
+
+  // Update selected source when tab changes
+  useEffect(() => {
+    if (!isRecording) {
+      if (activeTab === "camera") {
+        // Handle camera tab - select first camera if available
+        if (cameraDevices.length > 0) {
+          const currentDevice = cameraDevices.find(
+            (d) => d.deviceId === selectedSource
+          );
+          if (!currentDevice) {
+            setSelectedSource(cameraDevices[0].deviceId);
+          }
+        } else {
+          setSelectedSource("");
+        }
       } else {
-        // Otherwise start webcam-only recording
-        await startWebcamRecording();
+        // Handle screen/window tabs
+        if (sources.length > 0) {
+          const tabSources = sources.filter((s) => s.type === activeTab);
+          if (tabSources.length > 0) {
+            // Keep current selection if it's valid for new tab, otherwise select first
+            const currentSource = sources.find((s) => s.id === selectedSource);
+            if (currentSource && currentSource.type === activeTab) {
+              // Keep current selection
+            } else {
+              setSelectedSource(tabSources[0].id);
+            }
+          } else {
+            setSelectedSource("");
+          }
+        }
+      }
+    }
+  }, [activeTab, sources, cameraDevices, isRecording, selectedSource]);
+
+  // Unified recording handler
+  const handleStartRecording = async () => {
+    if (activeTab === "camera") {
+      // Camera-only recording
+      await startWebcamRecording();
+    } else if (activeTab === "screen" || activeTab === "window") {
+      // Screen/window recording
+      const recordingStarted = await startScreenOrWindowRecording();
+      // If camera overlay is enabled, add it after screen recording starts
+      if (cameraOverlay && recordingStarted) {
+        // Wait a bit for the screen stream to be ready
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        if (isRecordingRef.current && screenStreamRef.current) {
+          await addWebcamOverlay();
+        }
       }
     }
   };
@@ -89,8 +158,18 @@ export function Recorder({
       setIsRecordingWebcam(true);
       isRecordingWebcamRef.current = true;
 
+      const videoConstraints: MediaTrackConstraints = {
+        width: 1280,
+        height: 720,
+      };
+
+      // Use selected camera device ID if available
+      if (selectedSource && activeTab === "camera") {
+        videoConstraints.deviceId = { exact: selectedSource };
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1280, height: 720 },
+        video: videoConstraints,
         audio: { echoCancellation: true },
       });
 
@@ -250,8 +329,18 @@ export function Recorder({
       setIsRecordingWebcam(true);
       isRecordingWebcamRef.current = true;
 
+      const videoConstraints: MediaTrackConstraints = {
+        width: 1280,
+        height: 720,
+      };
+
+      // Use selected camera device ID if available
+      if (selectedSource && activeTab === "camera") {
+        videoConstraints.deviceId = { exact: selectedSource };
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1280, height: 720 },
+        video: videoConstraints,
         audio: { echoCancellation: true },
       });
 
@@ -320,7 +409,7 @@ export function Recorder({
     }
   };
 
-  const startRecording = async () => {
+  const startScreenOrWindowRecording = async (): Promise<boolean> => {
     try {
       setIsLoading(true);
 
@@ -334,11 +423,10 @@ export function Recorder({
         } as unknown as MediaTrackConstraints,
       };
 
-      setIsRecording(true);
-      isRecordingRef.current = true;
-
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
+      setIsRecording(true);
+      isRecordingRef.current = true;
       screenStreamRef.current = stream;
 
       setTimeout(() => {
@@ -389,16 +477,18 @@ export function Recorder({
 
       screenRecorderRef.current = recorder;
       recorder.start();
+      setIsLoading(false);
+      return true;
     } catch (error) {
       console.error("Failed to start screen recording:", error);
       setIsRecording(false);
       isRecordingRef.current = false;
+      setIsLoading(false);
       setAlertDialog(
         "Screen Recording Error",
         "Failed to start screen recording. Make sure you selected a source."
       );
-    } finally {
-      setIsLoading(false);
+      return false;
     }
   };
 
@@ -485,21 +575,21 @@ export function Recorder({
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-      <DialogContent className="w-[95vw] sm:max-w-[95vw] md:max-w-6xl lg:max-w-7xl max-h-[90vh]">
-        <DialogHeader>
+      <DialogContent className="w-[95vw] sm:max-w-[95vw] md:max-w-6xl lg:max-w-7xl flex flex-col p-6">
+        <DialogHeader className="pb-4">
           <DialogTitle>Record Screen or Camera</DialogTitle>
+          <DialogDescription></DialogDescription>
         </DialogHeader>
 
-        <div className="flex gap-6 py-4">
+        <div className="flex gap-6 flex-1 min-h-0 overflow-hidden">
           <SourceSelector
             sources={sources}
+            cameraDevices={cameraDevices}
             selectedSource={selectedSource}
             onSelectSource={setSelectedSource}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
             isRecording={isRecording}
-            isRecordingWebcam={isRecordingWebcam}
-            isLoading={isLoading}
-            onStartRecording={startRecording}
-            onToggleWebcam={toggleWebcam}
           />
 
           <RecordingPreview
@@ -507,22 +597,33 @@ export function Recorder({
             isRecordingWebcam={isRecordingWebcam}
             screenVideoRef={screenVideoRef}
             webcamVideoRef={webcamVideoRef}
-            onStopRecording={stopRecording}
-            onToggleWebcam={toggleWebcam}
+            onStopRecording={handleStopAll}
+            onStartRecording={handleStartRecording}
+            onCancel={() => handleDialogOpenChange(false)}
+            canRecord={
+              (activeTab === "camera" &&
+                !!selectedSource &&
+                cameraDevices.some((d) => d.deviceId === selectedSource)) ||
+              (activeTab === "screen" &&
+                !!selectedSource &&
+                sources
+                  .filter((s) => s.type === "screen")
+                  .some((s) => s.id === selectedSource)) ||
+              (activeTab === "window" &&
+                !!selectedSource &&
+                sources
+                  .filter((s) => s.type === "window")
+                  .some((s) => s.id === selectedSource))
+            }
+            isLoading={isLoading}
+            activeTab={activeTab}
+            cameraOverlay={cameraOverlay}
+            onCameraOverlayChange={setCameraOverlay}
           />
         </div>
 
         {/* Hidden canvas for compositing */}
         <canvas ref={canvasRef} style={{ display: "none" }} />
-
-        <div className="flex justify-end gap-2 pt-2 border-t">
-          <Button
-            variant="outline"
-            onClick={() => handleDialogOpenChange(false)}
-          >
-            Close
-          </Button>
-        </div>
       </DialogContent>
     </Dialog>
   );

@@ -53,6 +53,7 @@ export interface DesktopSource {
   id: string;
   name: string;
   thumbnail: string;
+  type: "screen" | "window" | "camera";
 }
 
 export interface ElectronAPI {
