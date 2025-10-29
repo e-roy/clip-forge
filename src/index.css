@@ -132,3 +132,8 @@ body {
     cursor: pointer;
   }
 }
+
+/* Fix for ScrollArea scrolling */
+[data-slot="scroll-area-viewport"] {
+  overflow: auto !important;
+}

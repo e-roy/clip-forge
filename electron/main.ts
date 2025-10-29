@@ -374,12 +374,12 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
       throw new Error("No clips to export");
     }
 
-    // Sort clips by startTime and then by trackId (lower tracks first)
+    // Sort clips by startTime and then by displayOrder (top tracks first)
     const sortedClips = [...clips].sort((a, b) => {
       if (a.startTime !== b.startTime) {
         return a.startTime - b.startTime;
       }
-      return a.trackId - b.trackId;
+      return a.displayOrder - b.displayOrder;
     });
 
     // Determine output resolution
@@ -438,13 +438,16 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
       const segmentEnd = sortedTimes[i + 1];
       const clipsByTrack = new Map<number, (typeof sortedClips)[0]>();
 
-      // Find all clips that exist in this time segment
+      // Find all clips that exist in this time segment (only visible tracks)
       sortedClips.forEach((clip) => {
+        // Skip invisible tracks - they should not appear in export (matching preview behavior)
+        if (!clip.visible) return;
+
         if (clip.startTime <= segmentStart && clip.endTime >= segmentEnd) {
           // This clip covers this segment
-          // If there's already a clip on this track, keep the one with higher trackId
+          // If there's already a clip on this track, keep the one with lower displayOrder (top priority)
           const existing = clipsByTrack.get(clip.trackId);
-          if (!existing || clip.trackId > existing.trackId) {
+          if (!existing || clip.displayOrder < existing.displayOrder) {
             clipsByTrack.set(clip.trackId, clip);
           }
         }
@@ -476,9 +479,9 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
         `segment_${processedSegments}.mp4`
       );
 
-      // Get tracks sorted by trackId (lowest to highest)
+      // Get tracks sorted by displayOrder (top to bottom)
       const tracks = Array.from(segment.clipsByTrack.entries()).sort(
-        (a, b) => a[0] - b[0]
+        (a, b) => a[1].displayOrder - b[1].displayOrder
       );
 
       // Helper to send progress update
@@ -507,8 +510,11 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
         const clipTimeInSegment = segment.startTime - clip.startTime;
         const seekTime = clip.inTime + clipTimeInSegment;
 
+        // Check if track is muted - if so, we need to output silent audio
+        const isMuted = clip.muted;
+
         await new Promise<void>((resolve, reject) => {
-          ffmpegInstance(clip.path)
+          let command = ffmpegInstance(clip.path)
             .seekInput(seekTime)
             .duration(segmentDuration)
             .videoCodec("libx264")
@@ -520,7 +526,14 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
               `-r ${fps}`,
               `-vf scale=${targetWidth}:${targetHeight}`,
               "-pix_fmt yuv420p",
-            ])
+            ]);
+
+          // If track is muted, apply volume=0 to silence audio (visual still shows)
+          if (isMuted) {
+            command = command.outputOptions(["-filter:a volume=0"]);
+          }
+
+          command
             .output(segmentOutputPath)
             .on("stderr", (stderrLine: string) => {
               const timeValue = parseFFmpegProgress(stderrLine);
@@ -553,7 +566,8 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
           );
         });
 
-        // Overlay tracks (higher tracks on top)
+        // Overlay tracks (lower displayOrder = base, higher displayOrder on top)
+        // Input 0 is base layer (lowest displayOrder), subsequent inputs overlay
         let currentOutput = "v0";
         for (let i = 1; i < tracks.length; i++) {
           const nextOutput = i === tracks.length - 1 ? "vout" : `vtmp${i}`;
@@ -563,13 +577,28 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
           currentOutput = nextOutput;
         }
 
-        // Mix audio from all tracks
-        const audioMixFilter =
-          tracks.length > 1
-            ? `${tracks.map((_, i) => `[${i}:a]`).join("")}amix=inputs=${
-                tracks.length
-              }:duration=first[aout]`
-            : `[0:a]anull[aout]`;
+        // Mix audio from unmuted tracks only
+        // Muted tracks still show visually but contribute no audio (matching preview behavior)
+        const unmutedTracks = tracks.filter(([_trackId, clip]) => !clip.muted);
+
+        let audioMixFilter: string;
+        if (unmutedTracks.length === 0) {
+          // All tracks muted - output silent audio
+          audioMixFilter = `[0:a]anull[aout]`;
+        } else if (unmutedTracks.length === 1) {
+          // Single unmuted track - pass through with volume applied
+          const unmutedIndex = tracks.indexOf(unmutedTracks[0]);
+          // Note: Volume adjustment would go here when implemented
+          audioMixFilter = `[${unmutedIndex}:a]anull[aout]`;
+        } else {
+          // Multiple unmuted tracks - mix them
+          const unmutedIndices = unmutedTracks.map((track) =>
+            tracks.indexOf(track)
+          );
+          const audioInputs = unmutedIndices.map((i) => `[${i}:a]`).join("");
+          // Note: Volume levels would be applied here when implemented
+          audioMixFilter = `${audioInputs}amix=inputs=${unmutedIndices.length}:duration=first[aout]`;
+        }
         filterParts.push(audioMixFilter);
 
         const filterComplex = filterParts.join(";");

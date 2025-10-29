@@ -10,6 +10,10 @@ export interface ExportJob {
     startTime: number;
     endTime: number;
     trackId: number;
+    displayOrder: number;
+    visible: boolean;
+    muted: boolean;
+    volume: number;
   }>;
 }
 

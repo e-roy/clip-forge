@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTimelineStore } from "@/store/timeline";
 import { useUIStore } from "@/store/ui";
 import { TrackItem } from "./TrackItem";
+import { getTickInterval } from "@/lib/timeline-helpers";
 
 interface TrackProps {
   trackId: number;
@@ -24,17 +25,30 @@ export function Track({
     addItem,
     items,
     updateItem,
+    tracks,
   } = useTimelineStore();
   const { showGrid } = useUIStore();
   const trackItems = getItemsForTrack(trackId);
   const [isDragOver, setIsDragOver] = useState(false);
 
+  // Get track info to check if locked
+  const trackInfo = tracks.find((t) => t.trackNumber === trackId);
+  const isLocked = trackInfo?.locked ?? false;
+
+  const tickInterval = getTickInterval(pixelsPerSecond, duration);
+
   // Generate grid lines
   const gridLines: number[] = [];
+  const majorTicks: number[] = [];
   if (showGrid) {
     for (let time = 0; time <= duration; time += snapGrid) {
       gridLines.push(time);
     }
+  }
+
+  // Generate major tick lines
+  for (let time = 0; time <= duration; time += tickInterval) {
+    majorTicks.push(time);
   }
 
   // Handle drop on this track
@@ -42,6 +56,9 @@ export function Track({
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
+
+    // Don't allow drops on locked tracks
+    if (isLocked) return;
 
     const clipId = e.dataTransfer.getData("text/plain");
     const itemId = e.dataTransfer.getData("application/timeline-item-id");
@@ -86,11 +103,22 @@ export function Track({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
     >
-      {/* Grid lines */}
-      {gridLines.map((time) => (
+      {/* Minor grid lines */}
+      {gridLines
+        .filter((time) => !majorTicks.includes(time))
+        .map((time) => (
+          <div
+            key={`grid-${time}`}
+            className="absolute h-full border-l border-border opacity-50 pointer-events-none"
+            style={{ left: `${time * pixelsPerSecond}px` }}
+          />
+        ))}
+
+      {/* Major tick lines - more visible */}
+      {majorTicks.map((time) => (
         <div
-          key={`grid-${time}`}
-          className="absolute h-full border-l border-border opacity-50 pointer-events-none"
+          key={`major-${time}`}
+          className="absolute h-full border-l-4 border-border opacity-70 pointer-events-none"
           style={{ left: `${time * pixelsPerSecond}px` }}
         />
       ))}
@@ -108,6 +136,7 @@ export function Track({
           pixelsPerSecond={pixelsPerSecond}
           isSelected={selectedItemId === item.id}
           snapGrid={snapGrid}
+          isTrackLocked={isLocked}
         />
       ))}
     </div>

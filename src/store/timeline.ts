@@ -7,6 +7,7 @@ interface TimelineSnapshot {
   tracks: Array<{
     id: string;
     trackNumber: number;
+    displayOrder: number;
     name: string;
     visible: boolean;
     locked: boolean;
@@ -15,6 +16,7 @@ interface TimelineSnapshot {
   }>;
   duration: number;
   selectedItemId: string | null;
+  masterVolume: number;
 }
 
 interface TimelineState {
@@ -25,6 +27,9 @@ interface TimelineState {
 
   // Playhead position in seconds
   playheadTime: number;
+
+  // Master volume (0.0 to 1.0)
+  masterVolume: number;
 
   // Timeline items
   items: TimelineItem[];
@@ -39,6 +44,7 @@ interface TimelineState {
   tracks: Array<{
     id: string;
     trackNumber: number;
+    displayOrder: number;
     name: string;
     visible: boolean;
     locked: boolean;
@@ -53,26 +59,32 @@ interface TimelineState {
   // Actions
   setPlayheadTime: (time: number) => void;
   setPixelsPerSecond: (pps: number) => void;
+  setMasterVolume: (volume: number) => void;
   addItem: (clipId: string, trackId?: number) => void;
   removeItem: (itemId: string, ripple?: boolean) => void;
   updateItem: (itemId: string, updates: Partial<TimelineItem>) => void;
   getItemsForTrack: (trackId: number) => TimelineItem[];
   getActiveItemAtTime: (time: number, trackId: number) => TimelineItem | null;
   getTopActiveItemAtTime: (time: number) => TimelineItem | null;
+  getAllActiveItemsAtTime: (time: number) => TimelineItem[];
   selectItem: (itemId: string | null) => void;
   splitItemAtPlayhead: (itemId: string, playheadTime: number) => void;
   getNextItemAfterTime: (time: number, trackId: number) => TimelineItem | null;
   reorderItems: (itemIds: string[]) => void;
   toggleRippleDelete: () => void;
   addTrack: () => string;
+  deleteTrack: (trackId: string) => void;
+  reorderTracks: (newOrder: string[]) => void;
   toggleTrackVisibility: (trackId: string) => void;
   toggleTrackLock: (trackId: string) => void;
   toggleTrackMute: (trackId: string) => void;
+  updateTrackName: (trackId: string, name: string) => void;
   undo: () => void;
   redo: () => void;
   canUndo: () => boolean;
   canRedo: () => boolean;
   snapshot: () => void;
+  reset: () => void;
 }
 
 export const useTimelineStore = create<TimelineState>((set, get) => {
@@ -82,10 +94,11 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
   // Generate a unique ID for tracks
   const generateTrackId = () => crypto.randomUUID();
 
-  // Create initial tracks (V1 at bottom, V2 at top)
+  // Create initial tracks (V1 at top, V2 below)
   const track1 = {
     id: generateTrackId(),
     trackNumber: 1,
+    displayOrder: 0,
     name: "V1",
     visible: true,
     locked: false,
@@ -96,6 +109,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
   const track2 = {
     id: generateTrackId(),
     trackNumber: 2,
+    displayOrder: 1,
     name: "V2",
     visible: true,
     locked: false,
@@ -108,6 +122,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     tracks: [track1, track2],
     duration: 0,
     selectedItemId: null,
+    masterVolume: 1.0,
   };
 
   return {
@@ -115,6 +130,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     duration: 0,
     pixelsPerSecond: 60,
     playheadTime: 0,
+    masterVolume: 1.0,
     items: [],
     selectedItemId: null,
     rippleDelete: false,
@@ -129,6 +145,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         tracks: state.tracks,
         duration: state.duration,
         selectedItemId: state.selectedItemId,
+        masterVolume: state.masterVolume,
       };
 
       set((prev) => {
@@ -155,6 +172,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
           tracks: snapshot.tracks,
           duration: snapshot.duration,
           selectedItemId: snapshot.selectedItemId,
+          masterVolume: snapshot.masterVolume,
           historyIndex: prev.historyIndex - 1,
         }));
       }
@@ -169,6 +187,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
           tracks: snapshot.tracks,
           duration: snapshot.duration,
           selectedItemId: snapshot.selectedItemId,
+          masterVolume: snapshot.masterVolume,
           historyIndex: prev.historyIndex + 1,
         }));
       }
@@ -232,6 +251,10 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
 
     setPixelsPerSecond: (pps: number) => {
       set({ pixelsPerSecond: Math.max(10, Math.min(pps, 240)) });
+    },
+
+    setMasterVolume: (volume: number) => {
+      set({ masterVolume: Math.max(0, Math.min(volume, 1)) });
     },
 
     removeItem: (itemId: string, ripple = false) => {
@@ -384,7 +407,12 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     getActiveItemAtTime: (time: number, trackId: number) => {
-      const { items } = get();
+      const { items, tracks } = get();
+      const track = tracks.find((t) => t.trackNumber === trackId);
+
+      // Don't return items on invisible tracks
+      if (!track || !track.visible) return null;
+
       const trackItems = items.filter((item) => item.trackId === trackId);
 
       return (
@@ -406,12 +434,13 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     getTopActiveItemAtTime: (time: number) => {
       const { items, tracks } = get();
 
-      // Find all tracks sorted by trackNumber (higher numbers first)
-      const sortedTracks = [...tracks].sort(
-        (a, b) => b.trackNumber - a.trackNumber
+      // Find all tracks sorted by displayOrder (lowest first = top of UI), filtered by visibility
+      const visibleTracks = tracks.filter((track) => track.visible);
+      const sortedTracks = [...visibleTracks].sort(
+        (a, b) => a.displayOrder - b.displayOrder
       );
 
-      // For each track (from highest to lowest), check if there's an item at this time
+      // For each visible track (from top to bottom of UI), check if there's an item at this time
       for (const track of sortedTracks) {
         const item = items.find(
           (item) =>
@@ -428,6 +457,34 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
       return null;
     },
 
+    getAllActiveItemsAtTime: (time: number) => {
+      const { items, tracks } = get();
+
+      // Find all tracks sorted by displayOrder (lowest first = top of UI), filtered by visibility
+      const visibleTracks = tracks.filter((track) => track.visible);
+      const sortedTracks = [...visibleTracks].sort(
+        (a, b) => a.displayOrder - b.displayOrder
+      );
+
+      const activeItems: TimelineItem[] = [];
+
+      // For each visible track, find items that are active at this time
+      for (const track of sortedTracks) {
+        const item = items.find(
+          (item) =>
+            item.trackId === track.trackNumber &&
+            time >= item.startTime &&
+            time < item.endTime
+        );
+
+        if (item) {
+          activeItems.push(item);
+        }
+      }
+
+      return activeItems;
+    },
+
     addTrack: () => {
       const { tracks, snapshot } = get();
       snapshot();
@@ -437,9 +494,11 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
           ? Math.max(...tracks.map((t) => t.trackNumber)) + 1
           : 1;
 
+      // Add new track at the top (displayOrder = 0, shifts all others down)
       const newTrack = {
         id: generateTrackId(),
         trackNumber: nextTrackNumber,
+        displayOrder: 0,
         name: `V${nextTrackNumber}`,
         visible: true,
         locked: false,
@@ -447,11 +506,85 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
         volume: 1,
       };
 
+      // Shift all existing tracks down
+      const updatedTracks = tracks.map((track) => ({
+        ...track,
+        displayOrder: track.displayOrder + 1,
+      }));
+
       set({
-        tracks: [...tracks, newTrack],
+        tracks: [newTrack, ...updatedTracks],
       });
 
       return newTrack.id;
+    },
+
+    reorderTracks: (newOrder: string[]) => {
+      const { tracks, snapshot } = get();
+      snapshot();
+
+      // Reorder tracks based on new displayOrder
+      const updatedTracks = newOrder
+        .map((trackId, index) => {
+          const track = tracks.find((t) => t.id === trackId);
+          if (track) {
+            return { ...track, displayOrder: index };
+          }
+          return null;
+        })
+        .filter((track): track is NonNullable<typeof track> => track !== null);
+
+      // Add any tracks not in the new order at the end
+      const orderedTrackIds = new Set(newOrder);
+      const remainingTracks = tracks
+        .filter((t) => !orderedTrackIds.has(t.id))
+        .map((t, index) => ({
+          ...t,
+          displayOrder: updatedTracks.length + index,
+        }));
+
+      set({
+        tracks: [...updatedTracks, ...remainingTracks],
+      });
+    },
+
+    deleteTrack: (trackId: string) => {
+      const { tracks, items, snapshot } = get();
+
+      // Don't allow deleting the last track
+      if (tracks.length <= 1) return;
+
+      snapshot();
+
+      // Find the track to delete
+      const trackToDelete = tracks.find((t) => t.id === trackId);
+      if (!trackToDelete) return;
+
+      // Remove all items from this track
+      const trackNumber = trackToDelete.trackNumber;
+      const remainingItems = items.filter(
+        (item) => item.trackId !== trackNumber
+      );
+
+      // Remove the track
+      const newTracks = tracks.filter((track) => track.id !== trackId);
+
+      // Recalculate duration based on remaining items
+      const newDuration =
+        remainingItems.length > 0
+          ? Math.max(...remainingItems.map((item) => item.endTime))
+          : 0;
+
+      set({
+        tracks: newTracks,
+        items: remainingItems,
+        duration: newDuration,
+      });
+
+      // Trigger save after significant action
+      import("@/store/project").then(({ useProjectStore }) => {
+        useProjectStore.getState().saveProject();
+      });
     },
 
     reorderItems: (_itemIds: string[]) => {
@@ -460,7 +593,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     toggleTrackVisibility: (trackId: string) => {
-      const { tracks } = get();
+      const { tracks, snapshot } = get();
+      snapshot();
       const newTracks = tracks.map((track) =>
         track.id === trackId ? { ...track, visible: !track.visible } : track
       );
@@ -468,7 +602,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     toggleTrackLock: (trackId: string) => {
-      const { tracks } = get();
+      const { tracks, snapshot } = get();
+      snapshot();
       const newTracks = tracks.map((track) =>
         track.id === trackId ? { ...track, locked: !track.locked } : track
       );
@@ -476,11 +611,69 @@ export const useTimelineStore = create<TimelineState>((set, get) => {
     },
 
     toggleTrackMute: (trackId: string) => {
-      const { tracks } = get();
+      const { tracks, snapshot } = get();
+      snapshot();
       const newTracks = tracks.map((track) =>
         track.id === trackId ? { ...track, muted: !track.muted } : track
       );
       set({ tracks: newTracks });
+    },
+
+    updateTrackName: (trackId: string, name: string) => {
+      const { tracks, snapshot } = get();
+      snapshot();
+      const newTracks = tracks.map((track) =>
+        track.id === trackId ? { ...track, name } : track
+      );
+      set({ tracks: newTracks });
+    },
+
+    reset: () => {
+      // Generate new initial tracks
+      const newTrack1 = {
+        id: generateTrackId(),
+        trackNumber: 1,
+        displayOrder: 0,
+        name: "V1",
+        visible: true,
+        locked: false,
+        muted: false,
+        volume: 1,
+      };
+
+      const newTrack2 = {
+        id: generateTrackId(),
+        trackNumber: 2,
+        displayOrder: 1,
+        name: "V2",
+        visible: true,
+        locked: false,
+        muted: false,
+        volume: 1,
+      };
+
+      const newInitialSnapshot: TimelineSnapshot = {
+        items: [],
+        tracks: [newTrack1, newTrack2],
+        duration: 0,
+        selectedItemId: null,
+        masterVolume: 1.0,
+      };
+
+      // Reset all state to initial values
+      set({
+        fps: 30,
+        duration: 0,
+        pixelsPerSecond: 60,
+        playheadTime: 0,
+        masterVolume: 1.0,
+        items: [],
+        selectedItemId: null,
+        rippleDelete: false,
+        tracks: [newTrack1, newTrack2],
+        history: [newInitialSnapshot],
+        historyIndex: 0,
+      });
     },
   };
 });

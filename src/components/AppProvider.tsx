@@ -30,11 +30,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const handleNewProject = () => {
       useClipsStore.getState().clearClips();
-      useTimelineStore.setState({
-        items: [],
-        selectedItemId: null,
-        duration: 0,
-      });
+      useTimelineStore.getState().reset();
       setProjectName("Untitled Project");
     };
 

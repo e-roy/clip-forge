@@ -3,7 +3,7 @@ import { useClipsStore } from "@/store/clips";
 import { useUIStore } from "@/store/ui";
 
 export function useExport() {
-  const { items } = useTimelineStore();
+  const { items, tracks } = useTimelineStore();
   const { clips } = useClipsStore();
   const { setExportProgressOpen } = useUIStore();
 
@@ -17,6 +17,7 @@ export function useExport() {
     const exportItems = items
       .map((item) => {
         const clip = clips.find((c) => c.id === item.clipId);
+        const track = tracks.find((t) => t.trackNumber === item.trackId);
         return {
           path: clip?.path || "",
           inTime: item.inTime,
@@ -24,6 +25,10 @@ export function useExport() {
           startTime: item.startTime,
           endTime: item.endTime,
           trackId: item.trackId,
+          displayOrder: track?.displayOrder ?? item.trackId,
+          visible: track?.visible ?? true,
+          muted: track?.muted ?? false,
+          volume: track?.volume ?? 1.0,
         };
       })
       .filter((item) => item.path); // Filter out any missing clips

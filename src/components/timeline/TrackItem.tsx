@@ -17,6 +17,7 @@ interface TrackItemProps {
   pixelsPerSecond: number;
   isSelected: boolean;
   snapGrid: number;
+  isTrackLocked: boolean;
 }
 
 export function TrackItem({
@@ -24,6 +25,7 @@ export function TrackItem({
   pixelsPerSecond,
   isSelected,
   snapGrid,
+  isTrackLocked,
 }: TrackItemProps) {
   const { clips } = useClipsStore();
   const { updateItem, selectItem, getItemsForTrack } = useTimelineStore();
@@ -121,6 +123,9 @@ export function TrackItem({
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    // Don't allow dragging on locked tracks
+    if (isTrackLocked) return;
+
     // Don't start dragging if clicking on trim handles or if a drag is already happening
     const target = e.target as HTMLElement;
     if (
@@ -270,6 +275,8 @@ export function TrackItem({
   ]);
 
   const handleLeftMouseDown = (e: React.MouseEvent) => {
+    // Don't allow trimming on locked tracks
+    if (isTrackLocked) return;
     e.stopPropagation();
     setIsDraggingLeft(true);
     setDragStartX(e.clientX);
@@ -277,6 +284,8 @@ export function TrackItem({
   };
 
   const handleRightMouseDown = (e: React.MouseEvent) => {
+    // Don't allow trimming on locked tracks
+    if (isTrackLocked) return;
     e.stopPropagation();
     setIsDraggingRight(true);
     setDragStartX(e.clientX);
@@ -286,6 +295,11 @@ export function TrackItem({
   if (!clip) return null;
 
   const handleDragStart = (e: React.DragEvent) => {
+    // Don't allow dragging from locked tracks
+    if (isTrackLocked) {
+      e.preventDefault();
+      return;
+    }
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", item.clipId);
     // Add item ID to distinguish from library clips
@@ -296,9 +310,11 @@ export function TrackItem({
     <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
       <PopoverTrigger asChild>
         <div
-          draggable
+          draggable={!isTrackLocked}
           onDragStart={handleDragStart}
-          className={`group absolute flex h-full items-center cursor-move select-none transition-opacity ${
+          className={`group absolute flex h-full items-center select-none transition-opacity ${
+            isTrackLocked ? "cursor-not-allowed opacity-50" : "cursor-move"
+          } ${
             isSelected
               ? "border-2 border-accent bg-accent/20"
               : "border border-primary bg-primary/10"

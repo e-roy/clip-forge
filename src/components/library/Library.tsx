@@ -99,7 +99,7 @@ export function Library() {
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col overflow-hidden">
       <div className="border-b border-border p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold">Library</h2>
@@ -128,12 +128,12 @@ export function Library() {
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 overflow-hidden">
         <div
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className={`h-full p-4 ${isDragging ? "bg-primary/10" : ""}`}
+          className={`p-4 ${isDragging ? "bg-primary/10" : ""}`}
         >
           {clips.length === 0 ? (
             <div className="mt-4 text-center text-sm text-muted-foreground">

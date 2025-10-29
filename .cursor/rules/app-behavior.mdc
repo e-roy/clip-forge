@@ -1,0 +1,316 @@
+---
+alwaysApply: true
+---
+
+# ClipForge — App Behavior Rules
+
+## Track Layering & Rendering
+
+### Track Numbering System
+
+- Tracks have two identifiers:
+  - `trackNumber`: Sequential identifier (1, 2, 3...) - immutable, used for internal reference
+  - `displayOrder`: Visual order (0, 1, 2...) - mutable, determines rendering order
+- **Lower displayOrder renders on top** (displayOrder 0 = top of UI)
+- In the UI, tracks are displayed sorted by displayOrder (lowest on top)
+- Track order can be changed via drag-and-drop reordering
+- When rendering, always iterate tracks from lowest to highest displayOrder
+
+### Track State Properties
+
+Each track has four key properties:
+
+- `visible: boolean` - Controls whether track content appears in preview and export
+- `locked: boolean` - Prevents editing items on this track (no drag, no trim)
+- `muted: boolean` - Silences audio from this track in preview and export (visual layers still show)
+- `volume: number` - Future feature for audio volume control for changing volume during playback and fade in/out (0.0 to 1.0)
+
+### Rendering Order
+
+1. For preview: iterate visible tracks from lowest to highest displayOrder
+2. For export: composite tracks in ascending displayOrder, overlaying lower displayOrder over higher ones
+3. Only visible tracks should participate in rendering (this is the expected behavior)
+
+## Preview Playback Behavior
+
+### Active Item Selection
+
+- Preview shows the **topmost active item** at the current playhead position
+- "Topmost" means: lowest displayOrder among items that exist at that time position
+- Only visible and unlocked tracks are considered for rendering
+- When playhead is between items or on an empty timeline section, show a blank screen
+
+### Playback Synchronization
+
+- Preview playback **follows** the timeline playhead position
+- When playhead moves, video seeks to correct position based on:
+  - Item's `startTime` and `endTime` on timeline
+  - Item's `inTime` and `outTime` in source clip
+- Formula: `clipPosition = item.inTime + (playheadTime - item.startTime)`
+- Preview automatically switches to appropriate clip when crossing item boundaries
+
+### Audio Behavior
+
+- Track mute state affects audio: muted tracks produce no sound in preview
+- Video layers from muted tracks still render visually
+- When multiple tracks are active, audio is mixed
+
+### Edge Cases
+
+- If no active item at playhead: show a blank screen
+- If item extends past playhead: item becomes inactive
+- Track visibility changes immediately affect what's shown in preview
+
+## Export Compositing
+
+### Preview-to-Export Matching
+
+- **Export output MUST match preview output** - "What you see is what you get"
+- Both preview and export use the same layering rules
+- Lower displayOrder (top in UI) renders on top of higher displayOrder in both preview and export
+- Only visible tracks should be included in export (this should be enforced)
+
+### Compositing Process
+
+1. **Segment creation**: Split timeline into segments at all item start/end boundaries
+2. **Track gathering**: For each segment, collect all items that span that time range
+3. **Overlay generation**: Lower displayOrder overlays on top of higher displayOrder
+4. **Audio mixing**: All active tracks' audio is mixed together
+5. **Concatenation**: All segments are joined seamlessly
+
+### Export Implementation
+
+- Single track: Simple trim using `-ss` (seek) and `-to` (duration)
+- Multiple tracks: Use FFmpeg's `overlay` filter to composite layers
+- Overlay order: Tracks must be processed in ascending displayOrder (top to bottom in UI)
+- Lower displayOrder (0) is the base layer, higher displayOrder overlays on top
+- Audio mixing: Use FFmpeg's `amix` filter to combine all audio streams
+- Clipping is applied using `inTime` and `outTime` values
+- Export uses displayOrder (not trackNumber) to determine layering
+
+### Expected
+
+- Export should filter out invisible tracks
+- Export should handle muted tracks (visual but no audio contribution)
+- Track volume should affect audio mixing levels in export
+
+## Timeline Item Behavior
+
+### Item Time Properties
+
+Each timeline item has two coordinate systems:
+
+- **Timeline coordinates**: `startTime` and `endTime` (position on timeline in seconds)
+- **Source coordinates**: `inTime` and `outTime` (trim points within source clip in seconds)
+
+### Item Manipulation
+
+1. **Horizontal dragging** (moving):
+
+   - Changes `startTime` and `endTime`
+   - `inTime` and `outTime` remain constant
+   - Item duration (`endTime - startTime`) remains constant
+   - Snaps to grid if snap-to-grid enabled
+
+2. **Vertical dragging** (between tracks):
+
+   - Changes `trackId`
+   - All other properties remain constant
+   - Only works when destination track is not locked
+
+3. **Left edge trimming**:
+
+   - Increases `inTime` (clips from start of source)
+   - Decreases `startTime` and `endTime` on timeline
+   - Item duration decreases
+   - Minimum duration: 0.1 seconds
+
+4. **Right edge trimming**:
+
+   - Decreases `outTime` (clips from end of source)
+   - Decreases `endTime` on timeline
+   - Item duration decreases
+   - Minimum duration: 0.1 seconds
+
+5. **Splitting** (S key):
+   - Creates two items from one at playhead position
+   - First item: ends at playhead, `outTime` adjusted to match split point
+   - Second item: starts at playhead, `inTime` set to split point in source
+   - New item ID generated for second item
+   - Second item becomes selected
+
+### Item Constraints
+
+- Items cannot be moved or trimmed when their track is locked
+- Items are identified by unique `id` string (UUID)
+- Items reference source clips via `clipId`
+
+## Track Management
+
+### Adding Tracks
+
+- Creates new track with sequential trackNumber (max existing + 1)
+- New tracks are added at the top with `displayOrder=0`
+- All existing tracks shift down (displayOrder incremented by 1)
+- Default properties: `visible=true`, `locked=false`, `muted=false`, `volume=1`
+- Default name: `V{trackNumber}`
+
+### Deleting Tracks
+
+- Cannot delete if it's the only remaining track
+- Items on deleted track are not moved to other tracks (they disappear from timeline)
+- Duration is recalculated after deletion
+- Other tracks' displayOrder remains unchanged
+
+### Reordering Tracks
+
+- Tracks can be reordered via drag-and-drop on track controls
+- Drag handle (grip icon) appears on the left side of track controls
+- The entire track control area is draggable
+- Dropping a track on another track inserts it at that position
+- All tracks' displayOrder values are recalculated to maintain sequential order (0, 1, 2, ...)
+- Reordering updates snapshots for undo/redo
+- Visual position in UI = rendering order (displayOrder)
+
+### Track Drag-and-Drop Behavior
+
+- Drag starts when clicking and holding on a track control
+- The dragged track can be dropped on any other track control
+- Dropping inserts the dragged track at the drop target's position
+- All tracks below the insertion point shift down (increase displayOrder by 1)
+- Dropping a track on itself has no effect
+- The visual position immediately reflects the new order
+
+### Track State Toggles
+
+- **Visibility**: Toggle affects what appears in preview and export
+- **Lock**: Toggle prevents all editing operations on items in that track
+- **Mute**: Toggle affects audio playback in preview and export
+
+## Ripple Delete Behavior
+
+### Ripple Mode (Toggle)
+
+When **ripple delete** is enabled and an item is deleted:
+
+1. Item is removed from timeline
+2. All items with `startTime > deletedItem.endTime` shift left
+3. Shift amount equals the deleted item's duration (`endTime - startTime`)
+4. Timeline duration decreases by the gap size
+
+### Non-Ripple Mode
+
+When ripple delete is disabled:
+
+1. Item is removed from timeline
+2. Other items remain at their original positions
+3. Gap remains on timeline (no automatic filling)
+4. Timeline duration remains constant
+
+### Duration Recalculation
+
+- After any item deletion, recalculate timeline duration
+- Duration = maximum `endTime` among remaining items
+- If no items remain, duration = 0
+
+## Selection & Interaction
+
+### Selection Model
+
+- **Single selection only**: Only one item can be selected at a time
+- Selecting a new item deselects the previous item
+- Selected item is highlighted with accent border
+- Clicking empty space deselects all items
+
+### Keyboard Shortcuts
+
+- `S`: Split selected item at playhead position
+- `Delete` / `Backspace`: Remove selected item (respects ripple mode)
+- `Space`: Toggle play/pause in preview
+- `Arrow Left/Right`: Move playhead by 1 second
+- `,` / `.`: Move playhead by 1 frame (~0.033s)
+- `Ctrl/Cmd + +/-`: Zoom timeline in/out
+
+### Timeline Navigation
+
+- Playhead position (`playheadTime`) drives both preview and timeline ruler
+- Moving playhead updates preview display
+- Playhead moves automatically during playback
+- Playhead constrained to timeline duration (0 to max endTime)
+
+### Drag-and-Drop
+
+- Clips from library can be dropped onto timeline tracks
+- Existing timeline items can be dragged between tracks
+- Drag operation carries `clipId` or timeline `itemId` via dataTransfer
+- Drop handlers check track lock state before allowing drop
+
+### Grid & Snapping
+
+- Grid lines can be shown/hidden (visual only)
+- Snap-to-grid can be enabled (affects item movement)
+- Snap grid size: 0.25 seconds (1/4 second increments)
+- When snapping enabled, items snap to nearest grid line or item edge
+
+## Timeline Zoom & Scale
+
+### Zoom Control
+
+- `pixelsPerSecond`: Controls timeline horizontal scale
+- Range: 10 to 240 pixels/second
+- Default: 60 pixels/second
+- Zoom affects: item width, ruler ticks, grid lines
+
+### Visual Scaling
+
+- Item width = `(item.outTime - item.inTime) * pixelsPerSecond`
+- Item position = `item.startTime * pixelsPerSecond`
+- Playhead position = `playheadTime * pixelsPerSecond`
+
+## UI State Management
+
+### Undo/Redo (Implemented)
+
+- History snapshots capture: items, tracks, duration, selection
+- Maximum 50 history entries
+- `snapshot()` creates new history entry
+- `undo()` / `redo()` navigate through history
+- Triggers: item add/remove/move, trim operations, track mutations
+
+### Auto-Save
+
+- Project auto-saves after significant operations:
+  - Adding items to timeline
+  - Removing items from timeline
+  - Importing clips
+- Saves to `app.getPath('userData')/ClipForge/Projects/autosave.cforge`
+
+## Implementation Consistency Rules
+
+### Preview Must Match Export
+
+The following behaviors must be identical between preview and export:
+
+1. **Track layering order** - Lowest displayOrder renders on top (matches UI position)
+2. **Visible/invisible tracks** - Only visible tracks participate
+3. **Clip trimming** - `inTime`/`outTime` bounds are respected
+4. **Timeline gaps** - Empty time segments produce empty output frames
+5. **Track muting** - Muted tracks show visually but have no audio
+6. **Track reordering** - Drag-and-drop order affects both preview and export
+
+### State Synchronization
+
+- Timeline playhead and preview playhead must stay in sync
+- When playhead moves, preview updates immediately
+- When preview plays, playhead advances automatically
+- Drag operations update state immediately (no debouncing)
+
+### Track Visibility Enforcement
+
+**Currently incomplete**: Export process should filter out invisible tracks but doesn't yet. This should be fixed to match preview behavior.
+
+### Error States
+
+- If clip file is missing: item should show but be non-functional
+- If track is deleted while items exist: items become orphaned
+- If playhead exceeds timeline duration: playback should stop

@@ -15,6 +15,7 @@ import { useUIStore } from "@/store/ui";
 import { useClipsStore } from "@/store/clips";
 import { useTimelineStore } from "@/store/timeline";
 import { PlayIcon } from "lucide-react";
+import * as audioRegistry from "@/lib/audio-registry";
 
 export function Preview() {
   const { selectedClipId } = useUIStore();
@@ -22,21 +23,25 @@ export function Preview() {
   const {
     playheadTime,
     getTopActiveItemAtTime,
+    getAllActiveItemsAtTime,
     setPlayheadTime,
     duration: timelineDuration,
+    tracks,
+    masterVolume,
+    setMasterVolume,
   } = useTimelineStore();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [fitToWindow, setFitToWindow] = useState(true);
 
-  // Get the topmost active item at the current playhead time
+  // Get the topmost active item at the current playhead time (for video display)
   const activeItem = getTopActiveItemAtTime(playheadTime);
   const activeClipId = activeItem?.clipId || selectedClipId;
   const selectedClip = clips.find((clip) => clip.id === activeClipId);
+
+  // Get all active items at the current playhead time (for audio mixing)
+  const allActiveItems = getAllActiveItemsAtTime(playheadTime);
 
   // Track previous timeline item ID to detect changes (not just clip ID)
   const prevItemIdRef = useRef<string | undefined>(undefined);
@@ -44,6 +49,15 @@ export function Preview() {
   const isTransitioningRef = useRef(false);
   // Track the current loaded video source
   const currentVideoSourceRef = useRef<string>("");
+
+  // Web Audio API refs for mixing multiple audio sources
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioElementRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const audioSourceNodesRef = useRef<Map<string, MediaElementAudioSourceNode>>(
+    new Map()
+  );
+  const gainNodesRef = useRef<Map<string, GainNode>>(new Map());
+  const analyserNodesRef = useRef<Map<number, AnalyserNode>>(new Map());
 
   // Update video position to match playhead
   useEffect(() => {
@@ -84,9 +98,12 @@ export function Preview() {
 
         // Set up one-time listener for when the video is ready
         const handleLoadedData = () => {
+          // Ensure video stays muted (audio is handled by Web Audio API)
+          video.muted = true;
+          video.volume = 0;
+
           // Seek to the correct time
           video.currentTime = clampedTime;
-          setCurrentTime(clampedTime);
 
           // If we should be playing, start playback immediately
           if (isPlaying) {
@@ -116,7 +133,6 @@ export function Preview() {
       } else {
         // Same source, just seek to new position
         video.currentTime = clampedTime;
-        setCurrentTime(clampedTime);
 
         // Ensure playback continues if we should be playing
         if (isPlaying && video.paused) {
@@ -135,7 +151,6 @@ export function Preview() {
       const drift = Math.abs(video.currentTime - clampedTime);
       if (drift > 0.05) {
         video.currentTime = clampedTime;
-        setCurrentTime(clampedTime);
       }
     } else {
       // When playing, ensure video element is also playing
@@ -154,6 +169,322 @@ export function Preview() {
     }
   }, [selectedClip, activeItem, playheadTime, isPlaying]);
 
+  // Mute main video element always (audio is handled by hidden audio elements for mixing)
+  useEffect(() => {
+    if (!videoRef.current) return;
+
+    // Always mute main video element and set volume to 0
+    // Audio is handled by hidden audio elements connected to Web Audio API for proper mixing
+    // This ensures consistent audio metering and prevents duplicate playback
+    videoRef.current.muted = true;
+    videoRef.current.volume = 0;
+
+    // Note: masterVolume is applied to hidden audio elements, not video element
+  }, []);
+
+  // Initialize Web Audio Context
+  useEffect(() => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext();
+      audioRegistry.setAudioContext(audioContextRef.current);
+    }
+
+    return () => {
+      // Clean up audio context on unmount
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+        audioContextRef.current = null;
+        audioRegistry.setAudioContext(null);
+      }
+      audioRegistry.clearAnalyserNodes();
+    };
+  }, []);
+
+  // Format video source helper
+  const formatVideoSrc = useCallback((path: string): string => {
+    let src = path;
+    if (src.includes("\\")) {
+      src = src.replace(/\\/g, "/");
+    }
+    if (!src.startsWith("file://") && !src.startsWith("/")) {
+      if (src.match(/^[A-Za-z]:\//)) {
+        src = `file:///${src}`;
+      } else {
+        src = `file:///${src}`;
+      }
+    } else if (src.startsWith("/") && !src.startsWith("file://")) {
+      src = `file://${src}`;
+    }
+    return src;
+  }, []);
+
+  // Helper to calculate time in clip for an item
+  const calculateTimeInClip = useCallback(
+    (item: (typeof allActiveItems)[0], time: number) => {
+      const timeInClip = time - item.startTime + item.inTime;
+      return Math.max(item.inTime, Math.min(timeInClip, item.outTime));
+    },
+    []
+  );
+
+  // Manage audio elements for multi-track audio mixing
+  useEffect(() => {
+    if (!audioContextRef.current || !videoRef.current) return;
+    const context = audioContextRef.current;
+
+    // Clean up audio elements for muted tracks or items no longer active
+    const activeItemIds = new Set(allActiveItems.map((item) => item.id));
+
+    // First, clean up muted tracks and items no longer active
+    audioElementRefs.current.forEach((audioEl, itemId) => {
+      const gainNode = gainNodesRef.current.get(itemId);
+
+      if (!activeItemIds.has(itemId)) {
+        // Item no longer active - instant cutoff for smooth transitions
+        if (gainNode) {
+          gainNode.gain.cancelScheduledValues(context.currentTime);
+          // Instant cutoff (0.001s) for smooth item transitions
+          gainNode.gain.setValueAtTime(0, context.currentTime + 0.001);
+
+          // Immediate cleanup without delay
+          audioEl.pause();
+          audioEl.src = "";
+          audioElementRefs.current.delete(itemId);
+          audioSourceNodesRef.current.delete(itemId);
+          gainNodesRef.current.delete(itemId);
+        } else {
+          audioEl.pause();
+          audioEl.src = "";
+          audioElementRefs.current.delete(itemId);
+          audioSourceNodesRef.current.delete(itemId);
+          gainNodesRef.current.delete(itemId);
+        }
+        return;
+      }
+
+      const item = allActiveItems.find((i) => i.id === itemId);
+      if (!item) return;
+
+      const track = tracks.find((t) => t.trackNumber === item.trackId);
+      if (track && track.muted && gainNode) {
+        // Track became muted - instant cutoff
+        gainNode.gain.cancelScheduledValues(context.currentTime);
+        gainNode.gain.setValueAtTime(0, context.currentTime + 0.001);
+
+        // Immediate cleanup without delay
+        audioEl.pause();
+        audioEl.src = "";
+        audioElementRefs.current.delete(itemId);
+        audioSourceNodesRef.current.delete(itemId);
+        gainNodesRef.current.delete(itemId);
+      }
+    });
+
+    // Create or update audio elements for unmuted active items
+    allActiveItems.forEach((item) => {
+      const track = tracks.find((t) => t.trackNumber === item.trackId);
+      const clip = clips.find((c) => c.id === item.clipId);
+
+      if (!clip || !track || track.muted) return;
+
+      const isNewItem = !audioElementRefs.current.has(item.id);
+
+      // Create audio element if it doesn't exist
+      if (isNewItem) {
+        const audioEl = document.createElement("audio");
+        audioEl.src = formatVideoSrc(clip.path);
+        audioEl.preload = "auto";
+        audioEl.muted = isMuted;
+        audioElementRefs.current.set(item.id, audioEl);
+
+        // Create source node
+        const sourceNode = context.createMediaElementSource(audioEl);
+        audioSourceNodesRef.current.set(item.id, sourceNode);
+
+        // Create or get analyser node for this track
+        let analyserNode = analyserNodesRef.current.get(item.trackId);
+        let isNewAnalyser = false;
+        if (!analyserNode) {
+          analyserNode = context.createAnalyser();
+          analyserNode.fftSize = 256;
+          analyserNode.smoothingTimeConstant = 0.3;
+          analyserNodesRef.current.set(item.trackId, analyserNode);
+          isNewAnalyser = true;
+        }
+
+        // Create gain node and connect - start immediately for smooth transitions
+        const gainNode = context.createGain();
+        // Instant start (0.001s) for seamless item transitions
+        gainNode.gain.setValueAtTime(
+          track.volume * masterVolume,
+          context.currentTime
+        );
+        gainNodesRef.current.set(item.id, gainNode);
+
+        sourceNode.connect(gainNode);
+        gainNode.connect(analyserNode);
+
+        // Only connect analyser to destination once per track
+        if (isNewAnalyser) {
+          analyserNode.connect(context.destination);
+          // Register with global registry
+          audioRegistry.setAnalyserNode(item.trackId, analyserNode);
+        }
+
+        // Once loaded, set to correct time and start playing if needed
+        audioEl.addEventListener(
+          "loadeddata",
+          () => {
+            // Read current playheadTime from store to ensure consistency
+            const currentPlayheadTime =
+              useTimelineStore.getState().playheadTime;
+            const timeInClip = calculateTimeInClip(item, currentPlayheadTime);
+            audioEl.currentTime = timeInClip;
+
+            // Start playing immediately if we should be playing
+            if (isPlaying) {
+              audioEl.play().catch(() => {});
+            }
+          },
+          { once: true }
+        );
+
+        // Also try to start playing immediately if already loaded
+        if (audioEl.readyState >= 4) {
+          const currentPlayheadTime = useTimelineStore.getState().playheadTime;
+          const timeInClip = calculateTimeInClip(item, currentPlayheadTime);
+          audioEl.currentTime = timeInClip;
+          if (isPlaying) {
+            audioEl.play().catch(() => {});
+          }
+        }
+      }
+
+      // Update gain node volume if changed (instant for smooth playback)
+      const gainNode = gainNodesRef.current.get(item.id);
+      if (gainNode) {
+        // Instant update for volume changes
+        gainNode.gain.setValueAtTime(
+          track.volume * masterVolume,
+          context.currentTime
+        );
+      }
+
+      // Update mute state and ensure playback
+      const audioEl = audioElementRefs.current.get(item.id);
+      if (audioEl) {
+        audioEl.muted = isMuted;
+
+        // Ensure the audio element is at the correct position and playing state
+        if (audioEl.readyState >= 2) {
+          const timeInClip = calculateTimeInClip(item, playheadTime);
+          const drift = Math.abs(audioEl.currentTime - timeInClip);
+
+          // New items need immediate sync, existing items can have more tolerance
+          const shouldSync = isNewItem ? drift > 0.001 : drift > 0.03;
+
+          if (shouldSync) {
+            audioEl.currentTime = timeInClip;
+          }
+
+          // Ensure playback state is synced
+          if (isPlaying && audioEl.paused) {
+            audioEl.play().catch(() => {});
+          } else if (!isPlaying && !audioEl.paused) {
+            audioEl.pause();
+          }
+        }
+      }
+    });
+
+    // Resume audio context if suspended
+    if (context.state === "suspended") {
+      context.resume();
+    }
+  }, [
+    allActiveItems,
+    tracks,
+    clips,
+    isMuted,
+    masterVolume,
+    isPlaying,
+    playheadTime,
+    formatVideoSrc,
+    calculateTimeInClip,
+  ]);
+
+  // Separate effect to sync audio playback position and state
+  useEffect(() => {
+    if (!videoRef.current) return;
+
+    const video = videoRef.current;
+
+    // Sync playback state immediately when isPlaying changes
+    audioElementRefs.current.forEach((audioEl, itemId) => {
+      const item = allActiveItems.find((i) => i.id === itemId);
+      if (!item) return;
+
+      const track = tracks.find((t) => t.trackNumber === item.trackId);
+      if (!track || track.muted) return;
+
+      // Sync playback state
+      if (isPlaying && audioEl.paused) {
+        audioEl.play().catch(() => {});
+      } else if (!isPlaying && !audioEl.paused) {
+        audioEl.pause();
+      }
+    });
+
+    // Use requestAnimationFrame to sync position during playback
+    let rafId: number;
+    if (isPlaying) {
+      const syncLoop = () => {
+        // Read current playheadTime from store on each frame to avoid stale closure
+        const currentPlayheadTime = useTimelineStore.getState().playheadTime;
+
+        audioElementRefs.current.forEach((audioEl, itemId) => {
+          const item = allActiveItems.find((i) => i.id === itemId);
+          if (!item) return;
+
+          const track = tracks.find((t) => t.trackNumber === item.trackId);
+          if (!track || track.muted) return;
+
+          const timeInClip = calculateTimeInClip(item, currentPlayheadTime);
+
+          // Only seek if the drift is significant (more than 0.03s, ~1 frame at 30fps)
+          const drift = Math.abs(audioEl.currentTime - timeInClip);
+          if (audioEl.readyState >= 2 && drift > 0.03) {
+            audioEl.currentTime = timeInClip;
+          }
+        });
+
+        if (isPlaying && video.paused === false) {
+          rafId = requestAnimationFrame(syncLoop);
+        }
+      };
+      rafId = requestAnimationFrame(syncLoop);
+    }
+
+    return () => {
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+      }
+    };
+  }, [allActiveItems, playheadTime, isPlaying, tracks, calculateTimeInClip]);
+
+  // Cleanup audio elements on unmount
+  useEffect(() => {
+    return () => {
+      audioElementRefs.current.forEach((audioEl) => {
+        audioEl.pause();
+        audioEl.src = "";
+      });
+      audioElementRefs.current.clear();
+      audioSourceNodesRef.current.clear();
+      gainNodesRef.current.clear();
+    };
+  }, []);
+
   // Sync state with video element play/pause events
   useEffect(() => {
     const video = videoRef.current;
@@ -171,23 +502,20 @@ export function Preview() {
     };
   }, [activeClipId]);
 
-  // Handle time updates from video element
-  const handleTimeUpdate = () => {
-    if (videoRef.current && selectedClip) {
-      setCurrentTime(videoRef.current.currentTime);
-    }
-  };
-
   // Update timeline playhead during video playback using requestAnimationFrame
   useEffect(() => {
-    if (!isPlaying || !videoRef.current || !activeItem) return;
+    if (!isPlaying || !videoRef.current) return;
 
     let animationFrameId: number;
     let lastUpdateTime = performance.now();
 
     const updatePlayhead = (currentTime: number) => {
       const video = videoRef.current;
-      if (!video || !activeItem) return;
+      // Get current activeItem from store on each frame to avoid stale closure
+      const currentActiveItem = getTopActiveItemAtTime(
+        useTimelineStore.getState().playheadTime
+      );
+      if (!video || !currentActiveItem) return;
 
       // Calculate elapsed time since last update
       const deltaTime = (currentTime - lastUpdateTime) / 1000; // Convert to seconds
@@ -198,13 +526,14 @@ export function Preview() {
 
       // Calculate where the playhead should be based on video position
       const expectedPlayheadTime =
-        activeItem.startTime + (videoTimeInClip - activeItem.inTime);
+        currentActiveItem.startTime +
+        (videoTimeInClip - currentActiveItem.inTime);
 
       // Check if we've reached or passed the end of the current item
-      if (expectedPlayheadTime >= activeItem.endTime - 0.016) {
+      if (expectedPlayheadTime >= currentActiveItem.endTime - 0.016) {
         // At or past end of current item
         // Check if there's more content ahead
-        const nextPlayheadTime = activeItem.endTime;
+        const nextPlayheadTime = currentActiveItem.endTime;
 
         if (nextPlayheadTime >= timelineDuration) {
           // End of timeline
@@ -250,7 +579,13 @@ export function Preview() {
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [isPlaying, playheadTime, timelineDuration, setPlayheadTime, activeItem]);
+  }, [
+    isPlaying,
+    playheadTime,
+    timelineDuration,
+    setPlayheadTime,
+    getTopActiveItemAtTime,
+  ]);
 
   // Handle video ended - should not happen in continuous playback mode
   // But we handle it just in case
@@ -269,13 +604,6 @@ export function Preview() {
     }
   }, [activeItem, timelineDuration, setPlayheadTime, setIsPlaying]);
 
-  // Handle duration change
-  const handleDurationChange = () => {
-    if (videoRef.current) {
-      setDuration(videoRef.current.duration);
-    }
-  };
-
   // Handle play/pause
   const togglePlay = async () => {
     if (!videoRef.current) return;
@@ -289,29 +617,28 @@ export function Preview() {
     }
   };
 
-  // Handle seek
+  // Handle seek on timeline
   const handleSeek = (value: number[]) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = value[0];
-      setCurrentTime(value[0]);
-    }
+    const newPlayheadTime = value[0];
+    setPlayheadTime(newPlayheadTime);
   };
 
   // Handle volume change
   const handleVolumeChange = (value: number[]) => {
-    if (videoRef.current) {
-      const newVolume = value[0] / 100;
-      videoRef.current.volume = newVolume;
-      setVolume(newVolume);
-    }
+    const newVolume = value[0] / 100;
+    setMasterVolume(newVolume);
   };
 
   // Handle mute toggle
   const toggleMute = () => {
-    if (videoRef.current) {
-      videoRef.current.muted = !isMuted;
-      setIsMuted(!isMuted);
-    }
+    const newMuteState = !isMuted;
+    setIsMuted(newMuteState);
+
+    // Main video element stays muted (audio is handled by hidden elements)
+    // Mute/unmute all hidden audio elements
+    audioElementRefs.current.forEach((audioEl) => {
+      audioEl.muted = newMuteState;
+    });
   };
 
   // Handle keyboard shortcuts
@@ -370,32 +697,6 @@ export function Preview() {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Helper function to format video source paths
-  const formatVideoSrc = (path: string): string => {
-    let src = path;
-
-    // Convert Windows backslashes to forward slashes
-    if (src.includes("\\")) {
-      src = src.replace(/\\/g, "/");
-    }
-
-    // Add file:// protocol if not already present
-    if (!src.startsWith("file://") && !src.startsWith("/")) {
-      // For Windows absolute paths (C:/Users/...), add three slashes
-      if (src.match(/^[A-Za-z]:\//)) {
-        src = `file:///${src}`;
-      } else {
-        src = `file:///${src}`;
-      }
-    } else if (src.startsWith("/") && !src.startsWith("file://")) {
-      src = `file://${src}`;
-    }
-
-    return src;
-  };
-
-  // Note: Video source is managed in the main playhead sync effect above
-
   // No clip selected state
   if (!selectedClip) {
     return (
@@ -421,8 +722,6 @@ export function Preview() {
         {/* Video */}
         <video
           ref={videoRef}
-          onTimeUpdate={handleTimeUpdate}
-          onLoadedMetadata={handleDurationChange}
           onEnded={handleVideoEnded}
           onError={(e) => console.error("Video playback error:", e)}
           className={`${
@@ -431,6 +730,8 @@ export function Preview() {
           style={{ display: "block" }}
           controls={false}
           playsInline
+          muted
+          preload="auto"
         />
       </div>
 
@@ -439,8 +740,8 @@ export function Preview() {
         {/* Progress Bar */}
         <div className="mb-3">
           <Slider
-            value={[currentTime]}
-            max={duration || 1}
+            value={[playheadTime]}
+            max={timelineDuration || 1}
             step={0.1}
             onValueChange={handleSeek}
             className="w-full"
@@ -455,9 +756,7 @@ export function Preview() {
               variant="ghost"
               size="icon"
               onClick={() => {
-                if (videoRef.current) {
-                  videoRef.current.currentTime = Math.max(0, currentTime - 1);
-                }
+                setPlayheadTime(Math.max(0, playheadTime - 1));
               }}
             >
               <SkipBack className="h-4 w-4" />
@@ -473,12 +772,7 @@ export function Preview() {
               variant="ghost"
               size="icon"
               onClick={() => {
-                if (videoRef.current) {
-                  videoRef.current.currentTime = Math.min(
-                    duration,
-                    currentTime + 1
-                  );
-                }
+                setPlayheadTime(Math.min(timelineDuration, playheadTime + 1));
               }}
             >
               <SkipForward className="h-4 w-4" />
@@ -486,7 +780,7 @@ export function Preview() {
 
             {/* Time Display */}
             <div className="ml-2 text-xs text-muted-foreground">
-              {formatTime(currentTime)} / {formatTime(duration)}
+              {formatTime(playheadTime)} / {formatTime(timelineDuration)}
             </div>
           </div>
 
@@ -500,7 +794,7 @@ export function Preview() {
               )}
             </Button>
             <Slider
-              value={[volume * 100]}
+              value={[masterVolume * 100]}
               max={100}
               step={1}
               onValueChange={handleVolumeChange}

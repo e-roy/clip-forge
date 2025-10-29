@@ -6,7 +6,7 @@ import { Track } from "./Track";
 import { TrackControls } from "./TrackControls";
 import { Toggle } from "@/components/ui/toggle";
 import { Button } from "@/components/ui/button";
-import { Grid3x3, Plus } from "lucide-react";
+import { Grid3x3, Plus, ChevronLeft, ChevronRight } from "lucide-react";
 
 const TRACK_HEIGHT = 60;
 const SNAP_GRID = 0.25; // 0.25 second snap grid
@@ -129,20 +129,13 @@ export function Timeline() {
       tabIndex={0}
     >
       {/* Header info */}
-      <div className="flex h-8 items-center justify-between border-b border-border px-2 text-xs text-muted-foreground">
-        <div className="flex items-center gap-2">
-          {[...tracks].reverse().map((track) => (
-            <div key={track.id} className="w-24">
-              {track.name}
-            </div>
-          ))}
-        </div>
-        <div className="flex items-center gap-2">
+      <div className="flex h-10 items-center justify-between border-b border-border px-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2"></div>
+        <div className="flex items-center gap-2 px-4">
           <Toggle
             pressed={showGrid}
             onPressedChange={toggleGrid}
-            size="sm"
-            variant="outline"
+            size="xs"
             title="Show/hide grid lines"
           >
             <Grid3x3 className="h-3 w-3" />
@@ -150,8 +143,7 @@ export function Timeline() {
           <Toggle
             pressed={snapToGrid}
             onPressedChange={toggleSnapToGrid}
-            size="sm"
-            variant="outline"
+            size="xs"
             title="Snap to grid when dragging"
           >
             Snap
@@ -159,14 +151,33 @@ export function Timeline() {
           <Toggle
             pressed={rippleDelete}
             onPressedChange={toggleRippleDelete}
-            size="sm"
-            variant="outline"
+            size="xs"
             title="Ripple delete mode"
           >
             Ripple
           </Toggle>
-          <div className="text-xs">
-            Zoom: {(pixelsPerSecond / 60).toFixed(1)}x
+          <div className="flex items-center gap-1">
+            <Button
+              onClick={() => setPixelsPerSecond(pixelsPerSecond - 20)}
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              title="Zoom out"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <div className="text-xs">
+              Zoom: {(pixelsPerSecond / 60).toFixed(1)}x
+            </div>
+            <Button
+              onClick={() => setPixelsPerSecond(pixelsPerSecond + 20)}
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              title="Zoom in"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
           </div>
         </div>
       </div>
@@ -174,22 +185,25 @@ export function Timeline() {
       {/* Main timeline content with control panel */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left control panel */}
-        <div className="w-32 flex flex-col border-r border-border bg-secondary/5">
+        <div className="w-40 flex flex-col border-r border-border bg-secondary/5">
           {/* Ruler spacer */}
           <div className="h-8 shrink-0 border-b border-border" />
 
           {/* Track controls */}
           <div>
-            {[...tracks].reverse().map((track) => (
-              <TrackControls
-                key={track.id}
-                trackId={track.id}
-                height={TRACK_HEIGHT}
-                isVisible={track.visible}
-                isLocked={track.locked}
-                isMuted={track.muted}
-              />
-            ))}
+            {[...tracks]
+              .sort((a, b) => a.displayOrder - b.displayOrder)
+              .map((track) => (
+                <TrackControls
+                  key={track.id}
+                  trackId={track.id}
+                  trackName={track.name}
+                  height={TRACK_HEIGHT}
+                  isVisible={track.visible}
+                  isLocked={track.locked}
+                  isMuted={track.muted}
+                />
+              ))}
 
             {/* Add track button */}
             <div className="flex h-[60px] items-center justify-center border-t border-border">
@@ -218,16 +232,18 @@ export function Timeline() {
               />
             </div>
 
-            {/* Tracks (rendered in reverse order - higher track numbers at top) */}
-            {[...tracks].reverse().map((track) => (
-              <Track
-                key={track.id}
-                trackId={track.trackNumber}
-                pixelsPerSecond={pixelsPerSecond}
-                height={TRACK_HEIGHT}
-                snapGrid={SNAP_GRID}
-              />
-            ))}
+            {/* Tracks (rendered by displayOrder - V1 at top) */}
+            {[...tracks]
+              .sort((a, b) => a.displayOrder - b.displayOrder)
+              .map((track) => (
+                <Track
+                  key={track.id}
+                  trackId={track.trackNumber}
+                  pixelsPerSecond={pixelsPerSecond}
+                  height={TRACK_HEIGHT}
+                  snapGrid={SNAP_GRID}
+                />
+              ))}
           </div>
         </div>
       </div>
