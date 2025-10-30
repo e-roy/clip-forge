@@ -8,7 +8,10 @@
     output: "release/${version}",
   },
   files: ["dist", "dist-electron"],
-  publish: null, // Disable publishing completely
+  publish: {
+    provider: "generic",
+    url: "https://example.com/dummy", // Dummy URL to prevent real publishing
+  },
   mac: {
     target: ["dmg"],
     artifactName: "${productName}-Mac-${version}-Installer.${ext}",
