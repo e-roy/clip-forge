@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useUIStore } from "@/store/ui";
 import { useClipsStore } from "@/store/clips";
 import { useTimelineStore } from "@/store/timeline";
@@ -38,11 +38,33 @@ export function Preview() {
     [clips, activeClipId]
   );
 
+  // When we have a selected clip but no active timeline item, ensure playhead is valid
+  useEffect(() => {
+    if (selectedClip && !activeItem && selectedClipId) {
+      // If playhead is at 0 and we have a clip, it's probably newly loaded
+      // Move playhead inside the clip so it becomes active
+      if (
+        playheadTime === 0 &&
+        selectedClip.duration &&
+        selectedClip.duration > 0
+      ) {
+        setPlayheadTime(0.1); // Move slightly inside to activate it
+      }
+    }
+  }, [selectedClip, activeItem, selectedClipId, playheadTime, setPlayheadTime]);
+
   // Get all active items at the current playhead time (for audio mixing)
   const allActiveItems = useMemo(
     () => getAllActiveItemsAtTime(playheadTime),
     [getAllActiveItemsAtTime, playheadTime]
   );
+
+  // Stop playback if we're playing but have no active content
+  useEffect(() => {
+    if (isPlaying && !activeItem) {
+      setIsPlaying(false);
+    }
+  }, [isPlaying, activeItem, setIsPlaying]);
 
   // Use custom hooks for video playback and audio mixing
   const { videoRef, isTransitioning } = useVideoPlayback(
@@ -123,11 +145,13 @@ export function Preview() {
 
     const nextTime = activeItem.endTime;
     const end = Math.max(timelineDuration, compositionDurationSec);
+
+    // Move to clip end
+    setPlayheadTime(Math.min(nextTime, end));
+
+    // Stop if at project end, otherwise continue (next check will stop if no content)
     if (nextTime >= end) {
-      setPlayheadTime(end);
       setIsPlaying(false);
-    } else {
-      setPlayheadTime(nextTime);
     }
   }, [activeItem, timelineDuration, compositionDurationSec, setPlayheadTime]);
 

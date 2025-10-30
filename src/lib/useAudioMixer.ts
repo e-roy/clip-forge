@@ -22,7 +22,6 @@ export function useAudioMixer(
     new Map()
   );
   const gainNodesRef = useRef<Map<string, GainNode>>(new Map());
-  const analyserNodesRef = useRef<Map<number, AnalyserNode>>(new Map());
 
   // Format video source helper
   const formatVideoSrc = (path: string): string => {
@@ -72,7 +71,6 @@ export function useAudioMixer(
         audioContextRef.current = null;
         audioRegistry.setAudioContext(null);
       }
-      audioRegistry.clearAnalyserNodes();
     };
   }, []);
 
@@ -83,6 +81,8 @@ export function useAudioMixer(
 
     // Clean up audio elements for muted tracks or items no longer active
     const activeItemIds = new Set(allActiveItems.map((item) => item.id));
+
+    // Analyser nodes disabled for testing
 
     // First, clean up muted tracks and items no longer active
     const itemsToCleanup: string[] = [];
@@ -143,13 +143,16 @@ export function useAudioMixer(
 
           // Pause and stop the audio element first
           if (audioEl) {
+            console.log("🎵 Cleaning up audio element for item:", itemId);
             audioEl.pause();
+            audioEl.currentTime = 0;
             audioEl.src = "";
+            audioEl.load(); // Reset the element
           }
 
           // Properly disconnect nodes after audio is stopped to avoid noise
           if (gainNode) {
-            gainNode.disconnect(); // Disconnect gain from analyser
+            gainNode.disconnect(); // Disconnect gain from destination
           }
           if (sourceNode) {
             sourceNode.disconnect(); // Disconnect source from gain
@@ -183,17 +186,6 @@ export function useAudioMixer(
         const sourceNode = context.createMediaElementSource(audioEl);
         audioSourceNodesRef.current.set(item.id, sourceNode);
 
-        // Create or get analyser node for this track
-        let analyserNode = analyserNodesRef.current.get(item.trackId);
-        let isNewAnalyser = false;
-        if (!analyserNode) {
-          analyserNode = context.createAnalyser();
-          analyserNode.fftSize = 256;
-          analyserNode.smoothingTimeConstant = 0.3;
-          analyserNodesRef.current.set(item.trackId, analyserNode);
-          isNewAnalyser = true;
-        }
-
         // Create gain node and connect - fade in for smooth transitions
         const gainNode = context.createGain();
         // Smooth fade in over 100ms to match fade out duration
@@ -206,16 +198,9 @@ export function useAudioMixer(
         );
         gainNodesRef.current.set(item.id, gainNode);
 
-        // Connect nodes - this creates the audio graph
+        // Connect nodes - direct to destination to test if analyser is causing issues
         sourceNode.connect(gainNode);
-        gainNode.connect(analyserNode);
-
-        // Only connect analyser to destination once per track
-        if (isNewAnalyser) {
-          analyserNode.connect(context.destination);
-          // Register with global registry
-          audioRegistry.setAnalyserNode(item.trackId, analyserNode);
-        }
+        gainNode.connect(context.destination);
 
         // Once loaded, set to correct time and start playing if needed
         // Use 'loadeddata' to ensure audio is ready before playing
@@ -267,6 +252,9 @@ export function useAudioMixer(
             context.currentTime + 0.1
           );
         }
+      } else if (!isNewItem) {
+        // Existing item but no gain node - this shouldn't happen
+        console.warn("🎵 Item exists but no gain node:", item.id);
       }
 
       // Update mute state and ensure playback
@@ -280,8 +268,8 @@ export function useAudioMixer(
           const roundedTimeInClip = roundToSampleBoundary(timeInClip);
           const drift = Math.abs(audioEl.currentTime - roundedTimeInClip);
 
-          // Reduce sync aggressiveness to avoid stuttering (increased threshold to 0.1s)
-          const shouldSync = isNewItem ? drift > 0.1 : drift > 0.1;
+          // Sync audio to video - higher threshold to prevent over-syncing
+          const shouldSync = drift > 0.2; // 200ms threshold to reduce sync frequency
 
           if (shouldSync) {
             audioEl.currentTime = roundedTimeInClip;
@@ -302,13 +290,22 @@ export function useAudioMixer(
       context.resume();
     }
   }, [
-    allActiveItems,
-    tracks,
-    clips,
+    // Use stable comparison based on item IDs instead of array reference
+    allActiveItems
+      .map((item) => item.id)
+      .sort()
+      .join(","),
+    tracks
+      .map((t) => `${t.trackNumber}-${t.visible}-${t.muted}`)
+      .sort()
+      .join(","),
+    clips
+      .map((c) => c.id)
+      .sort()
+      .join(","),
     isMuted,
     masterVolume,
     isPlaying,
-    playheadTime,
   ]);
 
   // Separate effect to sync audio playback position and state
@@ -331,37 +328,38 @@ export function useAudioMixer(
       }
     });
 
-    // Use requestAnimationFrame to sync position during playback
-    // Skip during transitions to avoid fighting with video loading
+    // Audio position sync - improved for scrubbing
     let rafId: number;
-    if (isPlaying && !isTransitioning) {
-      const syncLoop = () => {
-        // Read current playheadTime from store on each frame to avoid stale closure
-        const currentPlayheadTime = useTimelineStore.getState().playheadTime;
+    const syncLoop = () => {
+      const currentPlayheadTime = useTimelineStore.getState().playheadTime;
 
-        audioElementRefs.current.forEach((audioEl, itemId) => {
-          const item = allActiveItems.find((i) => i.id === itemId);
-          if (!item) return;
+      audioElementRefs.current.forEach((audioEl, itemId) => {
+        const item = allActiveItems.find((i) => i.id === itemId);
+        if (!item) return;
 
-          const track = tracks.find((t) => t.trackNumber === item.trackId);
-          if (!track || track.muted) return;
+        const track = tracks.find((t) => t.trackNumber === item.trackId);
+        if (!track || track.muted) return;
 
-          const timeInClip = calculateTimeInClip(item, currentPlayheadTime);
-          const roundedTimeInClip = roundToSampleBoundary(timeInClip);
+        const timeInClip = calculateTimeInClip(item, currentPlayheadTime);
+        const roundedTimeInClip = roundToSampleBoundary(timeInClip);
+        const drift = Math.abs(audioEl.currentTime - roundedTimeInClip);
 
-          // Reduce sync aggressiveness to avoid stuttering (increased threshold to 0.1s)
-          const drift = Math.abs(audioEl.currentTime - roundedTimeInClip);
-          if (audioEl.readyState >= 2 && drift > 0.1) {
-            audioEl.currentTime = roundedTimeInClip;
-          }
-        });
-
-        if (isPlaying && !isTransitioning) {
-          rafId = requestAnimationFrame(syncLoop);
+        // During playback, use higher threshold to avoid glitches
+        // When paused (scrubbing), sync immediately
+        const threshold = isPlaying ? 0.3 : 0.05;
+        if (audioEl.readyState >= 2 && drift > threshold) {
+          audioEl.currentTime = roundedTimeInClip;
         }
-      };
-      rafId = requestAnimationFrame(syncLoop);
-    }
+      });
+
+      // Continue syncing if playing or if we have active items (for scrubbing)
+      if (isPlaying || allActiveItems.length > 0) {
+        rafId = requestAnimationFrame(syncLoop);
+      }
+    };
+
+    // Start the sync loop
+    rafId = requestAnimationFrame(syncLoop);
 
     return () => {
       if (rafId) {

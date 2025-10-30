@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "fs/promises";
 import { createRequire } from "module";
+import { spawn } from "node:child_process";
 import Store from "electron-store";
 import type { ExportJob } from "./types";
 import { createApplicationMenu } from "./menu";
@@ -35,61 +36,459 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
   : RENDERER_DIST;
 
 // Setup ffmpeg paths (lazy load to avoid bundling issues)
-let ffmpegInstance: any = null;
+let ffmpegPaths: { ffmpeg: string; ffprobe: string } | null = null;
 
 const setupFfmpeg = () => {
-  if (!ffmpegInstance) {
-    const ffmpeg = require("fluent-ffmpeg");
-    const ffmpegInstaller = require("@ffmpeg-installer/ffmpeg");
-    const ffprobeInstaller = require("@ffprobe-installer/ffprobe");
+  if (!ffmpegPaths) {
+    const ffmpegPath = require("ffmpeg-static");
+    const ffprobePath = require("ffprobe-static");
 
-    let ffmpegPath = ffmpegInstaller.path;
-    let ffprobePath = ffprobeInstaller.path;
+    ffmpegPaths = {
+      ffmpeg: ffmpegPath,
+      ffprobe: typeof ffprobePath === "string" ? ffprobePath : ffprobePath.path,
+    };
+  }
+  return ffmpegPaths;
+};
 
-    // In production (packaged app), check if paths need adjustment
-    // Check if running from asar archive (production)
-    const isProduction = !app.isPackaged === false;
+// Helper function to run ffprobe and get JSON output
+const runFfprobe = (filePath: string): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    const paths = setupFfmpeg();
+    const ffprobe = spawn(paths.ffprobe, [
+      "-v",
+      "quiet",
+      "-print_format",
+      "json",
+      "-show_format",
+      "-show_streams",
+      filePath,
+    ]);
 
-    if (isProduction && !ffmpegPath.includes("app.asar")) {
-      // In packaged builds, the binaries are in extraResources
-      const resourcesPath = process.resourcesPath || app.getAppPath();
-      const potentialFfmpegPath = path.join(resourcesPath, "ffmpeg");
-      const potentialFfprobePath = path.join(resourcesPath, "ffprobe");
+    let stdout = "";
+    let stderr = "";
 
-      // Check if the paths exist in extraResources first
-      try {
-        const fsSync = require("fs");
-        if (fsSync.existsSync(potentialFfmpegPath)) {
-          // Find the actual executable in the directory
-          const ffmpegFiles = fsSync.readdirSync(potentialFfmpegPath);
-          const ffmpegExe = ffmpegFiles.find(
-            (f: string) => f === "ffmpeg.exe" || f === "ffmpeg"
-          );
-          if (ffmpegExe) {
-            ffmpegPath = path.join(potentialFfmpegPath, ffmpegExe);
-          }
+    ffprobe.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
+
+    ffprobe.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    ffprobe.on("close", (code) => {
+      if (code === 0) {
+        try {
+          const metadata = JSON.parse(stdout);
+          resolve(metadata);
+        } catch (error) {
+          reject(new Error(`Failed to parse ffprobe output: ${error}`));
         }
-
-        if (fsSync.existsSync(potentialFfprobePath)) {
-          const ffprobeFiles = fsSync.readdirSync(potentialFfprobePath);
-          const ffprobeExe = ffprobeFiles.find(
-            (f: string) => f === "ffprobe.exe" || f === "ffprobe"
-          );
-          if (ffprobeExe) {
-            ffprobePath = path.join(potentialFfprobePath, ffprobeExe);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to locate FFmpeg in extraResources:", err);
+      } else {
+        reject(new Error(`ffprobe failed with code ${code}: ${stderr}`));
       }
+    });
+
+    ffprobe.on("error", (error) => {
+      reject(error);
+    });
+  });
+};
+
+// Helper function to run ffmpeg command
+const runFfmpeg = (args: string[]): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const paths = setupFfmpeg();
+    // console.log(
+    //   "🎥 Running simple FFmpeg command:",
+    //   paths.ffmpeg,
+    //   args.join(" ")
+    // );
+
+    const ffmpeg = spawn(paths.ffmpeg, args);
+
+    let stderr = "";
+    let stdout = "";
+
+    ffmpeg.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
+
+    ffmpeg.stderr.on("data", (data) => {
+      const dataStr = data.toString();
+      stderr += dataStr;
+    });
+
+    ffmpeg.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        console.error("Simple FFmpeg failed with stderr:", stderr);
+        reject(new Error(`ffmpeg failed with code ${code}: ${stderr}`));
+      }
+    });
+
+    ffmpeg.on("error", (error) => {
+      console.error("Simple FFmpeg spawn error:", error);
+      reject(error);
+    });
+  });
+};
+
+// FFmpeg export functions - migrated from fluent-ffmpeg
+
+// Generate black video + silence for gap segments
+const generateGapSegment = async (
+  outputPath: string,
+  duration: number,
+  width: number,
+  height: number,
+  fps: number,
+  bitrateKbps: number,
+  onProgress?: (time: number) => void
+): Promise<void> => {
+  const args = [
+    "-y", // Overwrite output files without prompting
+    "-f",
+    "lavfi",
+    "-i",
+    `color=c=black:s=${width}x${height}:r=${fps}:d=${duration}`,
+    "-f",
+    "lavfi",
+    "-i",
+    "anullsrc=r=48000:cl=stereo",
+    "-shortest",
+    "-pix_fmt",
+    "yuv420p",
+    "-r",
+    fps.toString(),
+    "-b:v",
+    `${bitrateKbps}k`,
+    "-b:a",
+    "128k",
+    "-t",
+    duration.toString(),
+    outputPath,
+  ];
+
+  await runFfmpegWithProgress(args, onProgress);
+};
+
+// Export simple segment (single video/audio source)
+const exportSimpleSegment = async (
+  inputPath: string,
+  outputPath: string,
+  seekTime: number,
+  duration: number,
+  width: number,
+  height: number,
+  fps: number,
+  bitrateKbps: number,
+  onProgress?: (time: number) => void
+): Promise<void> => {
+  const args = [
+    "-y", // Overwrite output files without prompting
+    "-i",
+    inputPath,
+    "-ss",
+    seekTime.toString(),
+    "-t",
+    duration.toString(),
+    "-vf",
+    `scale=${width}:${height}`,
+    "-c:v",
+    "libx264",
+    "-c:a",
+    "aac",
+    "-preset",
+    "veryfast",
+    "-b:v",
+    `${bitrateKbps}k`,
+    "-b:a",
+    "128k",
+    "-r",
+    fps.toString(),
+    "-pix_fmt",
+    "yuv420p",
+    outputPath,
+  ];
+
+  await runFfmpegWithProgress(args, onProgress);
+};
+
+// Export complex segment with multiple inputs - use separate processing
+const exportComplexSegment = async (
+  videoInput: { path: string; seekTime: number },
+  audioInputs: Array<{ path: string; seekTime: number }>,
+  outputPath: string,
+  duration: number,
+  width: number,
+  height: number,
+  fps: number,
+  bitrateKbps: number,
+  onProgress?: (time: number) => void
+): Promise<void> => {
+  const tempDir = require("path").dirname(outputPath);
+  const videoTemp = require("path").join(
+    tempDir,
+    `temp_video_${Date.now()}.mp4`
+  );
+  const audioTemp = require("path").join(
+    tempDir,
+    `temp_audio_${Date.now()}.mp4`
+  );
+
+  try {
+    // Process video
+    await exportSimpleSegment(
+      videoInput.path,
+      videoTemp,
+      videoInput.seekTime,
+      duration,
+      width,
+      height,
+      fps,
+      bitrateKbps
+    );
+
+    // Process audio - mix all audio inputs
+    if (audioInputs.length > 0) {
+      const validAudioInputs: Array<{ path: string; seekTime: number }> = [];
+
+      // Check each audio input for valid audio streams
+      for (const audioInput of audioInputs) {
+        try {
+          const audioProbe = await runFfprobe(audioInput.path);
+          const hasAudio = audioProbe.streams.some(
+            (s: any) => s.codec_type === "audio"
+          );
+
+          if (hasAudio) {
+            validAudioInputs.push(audioInput);
+          }
+        } catch (error) {
+          // Skip audio sources that can't be probed
+        }
+      }
+
+      if (validAudioInputs.length === 0) {
+        // Create silent audio file
+        await runFfmpeg([
+          "-y",
+          "-f",
+          "lavfi",
+          "-i",
+          "anullsrc=r=48000:cl=stereo",
+          "-t",
+          duration.toString(),
+          "-c:a",
+          "aac",
+          "-b:a",
+          "128k",
+          audioTemp,
+        ]);
+      } else if (validAudioInputs.length === 1) {
+        // Single audio source - extract directly
+        const audioInput = validAudioInputs[0];
+        await runFfmpeg([
+          "-y",
+          "-i",
+          audioInput.path,
+          "-ss",
+          audioInput.seekTime.toString(),
+          "-t",
+          duration.toString(),
+          "-vn", // No video
+          "-c:a",
+          "aac",
+          "-b:a",
+          "128k",
+          audioTemp,
+        ]);
+      } else {
+        // Multiple audio sources - use amix filter to mix them
+        const mixInputs: string[] = [];
+        const filterComplexParts: string[] = [];
+
+        validAudioInputs.forEach((audioInput, index) => {
+          mixInputs.push("-i", audioInput.path);
+          filterComplexParts.push(
+            `[${index}:a]atrim=${audioInput.seekTime}:${
+              audioInput.seekTime + duration
+            }[a${index}]`
+          );
+        });
+
+        // Add the amix filter
+        filterComplexParts.push(
+          `${validAudioInputs.map((_, i) => `[a${i}]`).join("")}amix=inputs=${
+            validAudioInputs.length
+          }:duration=longest[aout]`
+        );
+
+        const mixArgs = [
+          "-y",
+          ...mixInputs,
+          "-filter_complex",
+          filterComplexParts.join(";"),
+          "-map",
+          "[aout]",
+          "-c:a",
+          "aac",
+          "-b:a",
+          "128k",
+          audioTemp,
+        ];
+
+        await runFfmpeg(mixArgs);
+      }
+    } else {
+      // Create silent audio file
+      await runFfmpeg([
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "anullsrc=r=48000:cl=stereo",
+        "-t",
+        duration.toString(),
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        audioTemp,
+      ]);
     }
 
-    ffmpeg.setFfmpegPath(ffmpegPath);
-    ffmpeg.setFfprobePath(ffprobePath);
+    // Combine video and audio
+    const combineArgs = ["-y", "-i", videoTemp];
 
-    ffmpegInstance = ffmpeg;
+    if (audioInputs.length > 0) {
+      combineArgs.push("-i", audioTemp);
+      combineArgs.push(
+        "-c:v",
+        "copy",
+        "-c:a",
+        "copy",
+        "-map",
+        "0:v",
+        "-map",
+        "1:a",
+        outputPath
+      );
+    } else {
+      combineArgs.push(
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        outputPath
+      );
+    }
+
+    await runFfmpegWithProgress(combineArgs, onProgress);
+
+    // Clean up temp files
+    const fs = require("fs").promises;
+    await fs.unlink(videoTemp).catch(() => {});
+    if (audioInputs.length > 0) {
+      await fs.unlink(audioTemp).catch(() => {});
+    }
+  } catch (error) {
+    // Clean up temp files on error
+    const fs = require("fs").promises;
+    await fs.unlink(videoTemp).catch(() => {});
+    if (audioInputs.length > 0) {
+      await fs.unlink(audioTemp).catch(() => {});
+    }
+    throw error;
   }
-  return ffmpegInstance;
+};
+
+// Concatenate multiple video files
+const concatenateSegments = async (
+  segmentFiles: string[],
+  outputPath: string
+): Promise<void> => {
+  if (segmentFiles.length === 1) {
+    // Single segment - just rename
+    await fs.rename(segmentFiles[0], outputPath);
+    return;
+  }
+
+  // Multiple segments - use concat demuxer
+  const tempDir = path.dirname(segmentFiles[0]);
+  const concatListPath = path.join(tempDir, "concat_list.txt");
+  const concatContent = segmentFiles
+    .map((file) => `file '${file.replace(/'/g, "'\\''")}'`)
+    .join("\n");
+
+  await fs.writeFile(concatListPath, concatContent);
+
+  const args = [
+    "-y", // Overwrite output files without prompting
+    "-f",
+    "concat",
+    "-safe",
+    "0",
+    "-i",
+    concatListPath,
+    "-c",
+    "copy",
+    outputPath,
+  ];
+
+  await runFfmpeg(args);
+
+  // Clean up concat list
+  await fs.unlink(concatListPath).catch(() => {});
+};
+
+// Enhanced runFfmpeg with progress monitoring
+const runFfmpegWithProgress = (
+  args: string[],
+  onProgress?: (time: number) => void
+): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const paths = setupFfmpeg();
+
+    const ffmpeg = spawn(paths.ffmpeg, args);
+
+    let stderr = "";
+    let stdout = "";
+
+    ffmpeg.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
+
+    ffmpeg.stderr.on("data", (data) => {
+      const dataStr = data.toString();
+      stderr += dataStr;
+
+      if (onProgress) {
+        const timeValue = parseFFmpegProgress(dataStr);
+        if (timeValue !== null) {
+          onProgress(timeValue);
+        }
+      }
+    });
+
+    ffmpeg.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        console.error("FFmpeg failed with stderr:", stderr);
+        reject(new Error(`FFmpeg failed with code ${code}: ${stderr}`));
+      }
+    });
+
+    ffmpeg.on("error", (error) => {
+      console.error("FFmpeg spawn error:", error);
+      reject(error);
+    });
+  });
 };
 
 let win: BrowserWindow | null;
@@ -103,11 +502,11 @@ async function loadDevServerWithRetry(
   for (let i = 0; i < maxRetries; i++) {
     try {
       await window.loadURL(url);
-      console.log(
-        `✓ Successfully loaded dev server at ${url} (attempt ${
-          i + 1
-        }/${maxRetries})`
-      );
+      // console.log(
+      //   `✓ Successfully loaded dev server at ${url} (attempt ${
+      //     i + 1
+      //   }/${maxRetries})`
+      // );
       return;
     } catch (error: any) {
       const errorMsg = error.code || error.message || "Unknown error";
@@ -246,7 +645,6 @@ ipcMain.handle("save-file-dialog", async (_, options) => {
 
 ipcMain.handle("get-media-info", async (_, filePaths: string[]) => {
   const clipsMetadata = [];
-  const ffmpegInstance = setupFfmpeg();
 
   for (const filePath of filePaths) {
     try {
@@ -260,12 +658,7 @@ ipcMain.handle("get-media-info", async (_, filePaths: string[]) => {
       const fileSize = stats.size;
 
       // Get media metadata using ffprobe
-      const metadata: any = await new Promise((resolve, reject) => {
-        ffmpegInstance.ffprobe(filePath, (err: Error | null, metadata: any) => {
-          if (err) reject(err);
-          else resolve(metadata);
-        });
-      });
+      const metadata = await runFfprobe(filePath);
 
       // Extract video stream
       const videoStream = metadata.streams.find(
@@ -324,18 +717,17 @@ ipcMain.handle("get-media-info", async (_, filePaths: string[]) => {
         // For short videos, use middle; for longer videos, use 10% of duration
         const frameTime = duration < 5 ? duration * 0.2 : 2;
 
-        await new Promise<void>((resolve, reject) => {
-          ffmpegInstance(filePath)
-            .seekInput(frameTime)
-            .outputOptions([
-              "-frames:v 1", // Extract only 1 frame
-              "-q:v 2", // High quality JPEG
-            ])
-            .output(thumbPath)
-            .on("end", () => resolve())
-            .on("error", (err: Error) => reject(err))
-            .run();
-        });
+        await runFfmpeg([
+          "-i",
+          filePath,
+          "-ss",
+          frameTime.toString(),
+          "-frames:v",
+          "1", // Extract only 1 frame
+          "-q:v",
+          "2", // High quality JPEG
+          thumbPath,
+        ]);
 
         // Read the thumbnail file and convert to base64 data URL
         const thumbData = await fs.readFile(thumbPath);
@@ -383,19 +775,11 @@ function parseFFmpegProgress(stderr: string): number | null {
 }
 
 ipcMain.handle("export-video", async (_, payload: ExportJob) => {
-  const ffmpegInstance = setupFfmpeg();
   const jobId = crypto.randomUUID();
   const startTime = Date.now();
 
   try {
-    const {
-      outputPath,
-      resolution,
-      fps,
-      bitrateKbps,
-      clips,
-      compositionDurationSec,
-    } = payload;
+    const { outputPath, resolution, fps, bitrateKbps, clips } = payload;
 
     if (clips.length === 0) {
       throw new Error("No clips to export");
@@ -421,20 +805,10 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
       targetHeight = 1080;
     } else {
       // Use source resolution (get from first clip)
-      const videoStream = (await new Promise((resolve, reject) => {
-        ffmpegInstance.ffprobe(
-          clips[0].path,
-          (err: Error | null, metadata: any) => {
-            if (err) reject(err);
-            else
-              resolve(
-                metadata.streams.find(
-                  (s: { codec_type: string }) => s.codec_type === "video"
-                )
-              );
-          }
-        );
-      })) as any;
+      const metadata = await runFfprobe(clips[0].path);
+      const videoStream = metadata.streams.find(
+        (s: { codec_type: string }) => s.codec_type === "video"
+      );
       targetWidth = videoStream.width;
       targetHeight = videoStream.height;
     }
@@ -452,10 +826,9 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
       audioClips: (typeof sortedClips)[0][];
     }> = [];
 
-    // Create a list of all time boundaries (include 0 and composition end)
+    // Create a list of all time boundaries (only clip starts/ends - export to last clip only)
     const timeBoundaries = new Set<number>();
     timeBoundaries.add(0);
-    timeBoundaries.add(Math.max(0, compositionDurationSec || 0));
     sortedClips.forEach((clip) => {
       timeBoundaries.add(clip.startTime);
       timeBoundaries.add(clip.endTime);
@@ -545,26 +918,19 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
 
       // Handle gap segments (no video/audio clips)
       if (!segment.videoClip) {
-        await new Promise<void>((resolve, reject) => {
-          ffmpegInstance()
-            .input(
-              `color=c=black:s=${targetWidth}x${targetHeight}:r=${fps}:d=${segmentDuration}`
-            )
-            .inputOptions(["-f", "lavfi"])
-            .input(`anullsrc=r=48000:cl=stereo`)
-            .inputOptions(["-f", "lavfi"])
-            .outputOptions([
-              "-shortest",
-              "-pix_fmt yuv420p",
-              `-r ${fps}`,
-              `-b:v ${bitrateKbps}k`,
-              `-b:a 128k`,
-            ])
-            .output(segmentOutputPath)
-            .on("end", () => resolve())
-            .on("error", (err: Error) => reject(err))
-            .run();
-        });
+        await generateGapSegment(
+          segmentOutputPath,
+          segmentDuration,
+          targetWidth,
+          targetHeight,
+          fps,
+          bitrateKbps,
+          (_time) => {
+            if (totalDuration > 0) {
+              sendProgress();
+            }
+          }
+        );
 
         segmentFiles.push(segmentOutputPath);
         processedSegments++;
@@ -590,109 +956,49 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
         const clipTimeInSegment = segment.startTime - videoClip.startTime;
         const seekTime = videoClip.inTime + clipTimeInSegment;
 
-        await new Promise<void>((resolve, reject) => {
-          ffmpegInstance(videoClip.path)
-            .seekInput(seekTime)
-            .duration(segmentDuration)
-            .videoCodec("libx264")
-            .audioCodec("aac")
-            .outputOptions([
-              "-preset veryfast",
-              `-b:v ${bitrateKbps}k`,
-              `-b:a 128k`,
-              `-r ${fps}`,
-              `-vf scale=${targetWidth}:${targetHeight}`,
-              "-pix_fmt yuv420p",
-            ])
-            .output(segmentOutputPath)
-            .on("stderr", (stderrLine: string) => {
-              const timeValue = parseFFmpegProgress(stderrLine);
-              if (timeValue !== null && totalDuration > 0) {
-                sendProgress();
-              }
-            })
-            .on("end", () => resolve())
-            .on("error", (err: Error) => reject(err))
-            .run();
-        });
+        await exportSimpleSegment(
+          videoClip.path,
+          segmentOutputPath,
+          seekTime,
+          segmentDuration,
+          targetWidth,
+          targetHeight,
+          fps,
+          bitrateKbps,
+          (_time) => {
+            if (totalDuration > 0) {
+              sendProgress();
+            }
+          }
+        );
       } else {
         // Multiple audio sources, no audio, or video/audio from different clips - need complex filter
-        const command = ffmpegInstance();
+        const videoInput = { path: videoClip.path, seekTime: videoSeekTime };
 
-        // Add video source as input 0
-        command.input(videoClip.path).seekInput(videoSeekTime);
-
-        // Add audio sources (may include the video clip if it's also in audioClips)
-        const audioInputIndices: number[] = [];
-        let nextInputIndex = 1; // Start at 1 because input 0 is video
-
+        // Build audio inputs array
+        const audioInputs: Array<{ path: string; seekTime: number }> = [];
         segment.audioClips.forEach((audioClip) => {
           const audioClipTimeInSegment =
             segment.startTime - audioClip.startTime;
           const audioSeekTime = audioClip.inTime + audioClipTimeInSegment;
+          audioInputs.push({ path: audioClip.path, seekTime: audioSeekTime });
+        });
 
-          // Check if this is the same as video clip (already added as input 0)
-          if (
-            audioClip.path === videoClip.path &&
-            audioSeekTime === videoSeekTime
-          ) {
-            audioInputIndices.push(0);
-          } else {
-            command.input(audioClip.path).seekInput(audioSeekTime);
-            audioInputIndices.push(nextInputIndex);
-            nextInputIndex++;
+        await exportComplexSegment(
+          videoInput,
+          audioInputs,
+          segmentOutputPath,
+          segmentDuration,
+          targetWidth,
+          targetHeight,
+          fps,
+          bitrateKbps,
+          (_time) => {
+            if (totalDuration > 0) {
+              sendProgress();
+            }
           }
-        });
-
-        // Build filter complex
-        const filterParts: string[] = [];
-
-        // Scale video to target resolution
-        filterParts.push(
-          `[0:v]scale=${targetWidth}:${targetHeight},setpts=PTS-STARTPTS[vout]`
         );
-
-        // Mix audio
-        if (audioInputIndices.length === 0) {
-          // No audio (all tracks muted) - generate silent audio
-          filterParts.push(`[0:a]volume=0[aout]`);
-        } else if (audioInputIndices.length === 1) {
-          // Single audio source
-          filterParts.push(`[${audioInputIndices[0]}:a]anull[aout]`);
-        } else {
-          // Multiple audio sources - mix them
-          const audioInputs = audioInputIndices.map((i) => `[${i}:a]`).join("");
-          filterParts.push(
-            `${audioInputs}amix=inputs=${audioInputIndices.length}:duration=first[aout]`
-          );
-        }
-
-        const filterComplex = filterParts.join(";");
-
-        await new Promise<void>((resolve, reject) => {
-          command
-            .complexFilter(filterComplex)
-            .outputOptions([
-              "-map [vout]",
-              "-map [aout]",
-              "-t " + segmentDuration,
-              "-preset veryfast",
-              `-b:v ${bitrateKbps}k`,
-              `-b:a 128k`,
-              `-r ${fps}`,
-              "-pix_fmt yuv420p",
-            ])
-            .output(segmentOutputPath)
-            .on("stderr", (stderrLine: string) => {
-              const timeValue = parseFFmpegProgress(stderrLine);
-              if (timeValue !== null && totalDuration > 0) {
-                sendProgress();
-              }
-            })
-            .on("end", () => resolve())
-            .on("error", (err: Error) => reject(err))
-            .run();
-        });
       }
 
       segmentFiles.push(segmentOutputPath);
@@ -700,28 +1006,7 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
     }
 
     // Concatenate all segments
-    if (segmentFiles.length === 1) {
-      // Single segment - just copy/rename
-      await fs.rename(segmentFiles[0], outputPath);
-    } else {
-      // Multiple segments - concatenate
-      const concatListPath = path.join(tempDir, "concat_list.txt");
-      const concatContent = segmentFiles
-        .map((file) => `file '${file.replace(/'/g, "'\\''")}'`)
-        .join("\n");
-      await fs.writeFile(concatListPath, concatContent);
-
-      await new Promise<void>((resolve, reject) => {
-        ffmpegInstance()
-          .input(concatListPath)
-          .inputOptions(["-f concat", "-safe 0"])
-          .outputOptions(["-c copy"])
-          .output(outputPath)
-          .on("end", () => resolve())
-          .on("error", (err: Error) => reject(err))
-          .run();
-      });
-    }
+    await concatenateSegments(segmentFiles, outputPath);
 
     // Clean up temp files
     try {
@@ -743,7 +1028,8 @@ ipcMain.handle("export-video", async (_, payload: ExportJob) => {
 
     return { jobId };
   } catch (error: any) {
-    console.error("Export error:", error);
+    console.error("❌ Export error:", error);
+    console.error("Error stack:", error.stack);
     if (win && !win.isDestroyed()) {
       win.webContents.send("export-done", {
         jobId,
