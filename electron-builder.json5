@@ -29,7 +29,7 @@
     artifactName: "${productName}-Mac-${version}-Installer.${ext}",
     minimumSystemVersion: "10.13",
     // Code signing and notarization (requires Apple Developer Program)
-    identity: "Developer ID Application: ClipForge (${env:APPLE_TEAM_ID})",
+    identity: "ClipForge (${env:APPLE_TEAM_ID})",
     hardenedRuntime: true,
     entitlements: "build/entitlements.mac.plist",
     entitlementsInherit: "build/entitlements.mac.plist",
