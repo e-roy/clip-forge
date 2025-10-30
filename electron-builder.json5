@@ -13,8 +13,18 @@
     url: "https://example.com/dummy", // Dummy URL to prevent real publishing
   },
   mac: {
-    target: ["dmg"],
+    target: [
+      {
+        target: "dmg",
+        arch: ["x64"],
+      },
+    ],
     artifactName: "${productName}-Mac-${version}-Installer.${ext}",
+    minimumSystemVersion: "10.13",
+    hardenedRuntime: false, // Disable hardened runtime for development
+    entitlements: null, // No entitlements file
+    entitlementsInherit: null, // No inherited entitlements
+    identity: null, // Ad-hoc code signing
   },
   win: {
     target: [
