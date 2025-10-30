@@ -12,6 +12,7 @@ import fs from "fs/promises";
 import { createRequire } from "module";
 import { spawn } from "node:child_process";
 import Store from "electron-store";
+import { autoUpdater } from "electron-updater";
 import type { ExportJob } from "./types";
 import { createApplicationMenu } from "./menu";
 
@@ -1383,5 +1384,50 @@ app.on("activate", () => {
     createWindow();
   }
 });
+
+// Configure auto-updater
+if (process.env.NODE_ENV === "production") {
+  autoUpdater.logger = console;
+
+  autoUpdater.on("checking-for-update", () => {
+    console.log("Checking for update...");
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    console.log("Update available:", info.version);
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    console.log("Update not available");
+  });
+
+  autoUpdater.on("error", (err) => {
+    console.error("Update error:", err);
+  });
+
+  autoUpdater.on("download-progress", (progressObj) => {
+    let log_message = "Download speed: " + progressObj.bytesPerSecond;
+    log_message = log_message + " - Downloaded " + progressObj.percent + "%";
+    log_message =
+      log_message +
+      " (" +
+      progressObj.transferred +
+      "/" +
+      progressObj.total +
+      ")";
+    console.log(log_message);
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    console.log("Update downloaded:", info.version);
+    // Auto-install on next app restart
+    autoUpdater.quitAndInstall();
+  });
+
+  // Check for updates (only in production)
+  setTimeout(() => {
+    autoUpdater.checkForUpdatesAndNotify();
+  }, 3000); // Wait 3 seconds after app start
+}
 
 app.whenReady().then(createWindow);

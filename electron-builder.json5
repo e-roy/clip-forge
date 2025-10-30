@@ -8,18 +8,12 @@
     output: "release/${version}",
   },
   files: ["dist", "dist-electron"],
-  extraResources: [
-    {
-      from: "node_modules/@ffmpeg-installer/ffmpeg",
-      to: "ffmpeg",
-      filter: ["**/*"],
-    },
-    {
-      from: "node_modules/@ffprobe-installer/ffprobe",
-      to: "ffprobe",
-      filter: ["**/*"],
-    },
-  ],
+  publish: {
+    provider: "github",
+    owner: "${{ secrets.GITHUB_OWNER || 'your-github-username' }}",
+    repo: "${{ secrets.GITHUB_REPO || 'clip-forge' }}",
+    releaseType: "release",
+  },
   mac: {
     target: ["dmg"],
     artifactName: "${productName}-Mac-${version}-Installer.${ext}",
