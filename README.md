@@ -1,5 +1,9 @@
 # ClipForge
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Electron](https://img.shields.io/badge/Electron-30+-blue.svg)](https://electronjs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-20+-green.svg)](https://nodejs.org/)
+
 A desktop video editor built with Electron, React, TypeScript, and TailwindCSS. Import clips, arrange them on a timeline, preview, and export MP4 files.
 
 ## Tech Stack
@@ -285,6 +289,25 @@ The app uses Electron's secure defaults:
 
 No Node.js APIs are exposed to the renderer process.
 
+## Disclaimer
+
+**ClipForge is currently in early development (v0.1.0).** While functional for basic video editing workflows, it may contain bugs or unexpected behavior. Always keep backups of your original video files.
+
+### Known Limitations
+- Audio sync may have slight timing variations
+- Large video files may cause performance issues
+- Windows, macOS, and Linux builds available
+
+## Contributing
+
+This project is open source! Feel free to:
+- Report bugs via GitHub Issues
+- Suggest features
+- Submit pull requests
+
+### Development Setup
+See the "Getting Started" section above for local development instructions.
+
 ## License
 
-MIT
+MIT - see [LICENSE](LICENSE) file for details
