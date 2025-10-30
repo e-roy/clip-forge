@@ -8,6 +8,7 @@
     output: "release/${version}",
   },
   files: ["dist", "dist-electron"],
+  publish: null, // Disable auto-publishing, let GitHub Actions handle it
   mac: {
     target: ["dmg"],
     artifactName: "${productName}-Mac-${version}-Installer.${ext}",
