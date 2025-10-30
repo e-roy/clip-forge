@@ -169,11 +169,9 @@ The included `.github/workflows/build-release.yml` automatically builds for:
 - **Linux:** `.AppImage` (make executable and run)
 - **Auto-updates:** Apps check for updates and install automatically
 
-**Repository Secrets:**
+**Repository Permissions:**
 
-- `GITHUB_TOKEN` - Automatically provided
-- `GITHUB_OWNER` - Your GitHub username (optional)
-- `GITHUB_REPO` - Repository name (optional)
+The workflow needs `contents: write` permission to attach files to releases (automatically granted for the repository owner).
 
 ### Manual Release Process
 
