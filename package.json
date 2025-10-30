@@ -1,7 +1,7 @@
 {
   "name": "clipforge",
   "private": true,
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Desktop video editor for quick clip editing and export",
   "author": "ClipForge Team",
   "type": "module",
