@@ -8,12 +8,6 @@
     output: "release/${version}",
   },
   files: ["dist", "dist-electron"],
-  publish: {
-    provider: "github",
-    owner: "${{ secrets.GITHUB_OWNER || 'your-github-username' }}",
-    repo: "${{ secrets.GITHUB_REPO || 'clip-forge' }}",
-    releaseType: "release",
-  },
   mac: {
     target: ["dmg"],
     artifactName: "${productName}-Mac-${version}-Installer.${ext}",
