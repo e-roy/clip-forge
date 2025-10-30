@@ -16,17 +16,16 @@ export default defineConfig({
     electron({
       main: {
         entry: "electron/main.ts",
-        vite: {
-          build: {
-            outDir: "dist-electron",
-          },
-        },
       },
       preload: {
-        input: path.join(__dirname, "electron/preload.ts"),
+        input: "electron/preload.ts",
         vite: {
           build: {
-            outDir: "dist-electron",
+            rollupOptions: {
+              output: {
+                format: "es", // ES module format for proper imports
+              },
+            },
           },
         },
       },

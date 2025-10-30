@@ -131,5 +131,4 @@ try {
   console.log("ContextBridge failed, using direct assignment");
   (window as any).api = electronAPI;
 }
-
 console.log("Preload script completed");

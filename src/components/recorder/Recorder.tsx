@@ -188,9 +188,11 @@ export function Recorder({
         }
       }, 50);
 
-      // Start compositing if screen is recording
-      if (isRecording && screenStreamRef.current) {
-        startCompositeRecording();
+      // Start compositing if screen is recording (will retry until ready)
+      if (isRecordingRef.current && screenStreamRef.current) {
+        setTimeout(() => {
+          startCompositeRecording();
+        }, 200); // Give time for video elements to load
       }
     } catch (error) {
       console.error("Failed to add webcam overlay:", error);
@@ -209,8 +211,14 @@ export function Recorder({
     if (
       !canvasRef.current ||
       !screenStreamRef.current ||
-      !webcamStreamRef.current
+      !webcamStreamRef.current ||
+      !screenVideoRef.current ||
+      !webcamVideoRef.current ||
+      screenVideoRef.current.readyState < 2 || // HAVE_CURRENT_DATA
+      webcamVideoRef.current.readyState < 2
     ) {
+      // Retry after a short delay
+      setTimeout(startCompositeRecording, 100);
       return;
     }
 
@@ -260,7 +268,11 @@ export function Recorder({
     // Add audio from webcam if available
     const audioTracks = webcamStreamRef.current.getAudioTracks();
     if (audioTracks.length > 0) {
-      compositeStream.addTrack(audioTracks[0]);
+      try {
+        compositeStream.addTrack(audioTracks[0]);
+      } catch (error) {
+        console.error("Failed to add webcam audio track:", error);
+      }
     }
 
     compositeStreamRef.current = compositeStream;
@@ -278,14 +290,26 @@ export function Recorder({
     screenChunksRef.current = [];
 
     // Start new recording with composite stream
+    // Try different codecs for better compatibility with composited streams
+    let mimeType = "video/webm;codecs=vp9";
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+      mimeType = "video/webm;codecs=vp8";
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = "video/webm"; // Fallback to basic webm
+      }
+    }
     const recorder = new MediaRecorder(compositeStream, {
-      mimeType: "video/webm;codecs=vp9",
+      mimeType,
     });
 
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) {
         screenChunksRef.current.push(event.data);
       }
+    };
+
+    recorder.onerror = (event) => {
+      console.error("Composite recording error:", event.error);
     };
 
     recorder.onstop = async () => {
@@ -320,7 +344,20 @@ export function Recorder({
     };
 
     screenRecorderRef.current = recorder;
-    recorder.start();
+
+    try {
+      recorder.start();
+    } catch (error) {
+      console.error("Failed to start composite recording:", error);
+      // Show error to user and stop
+      setAlertDialog(
+        "Recording Error",
+        "Failed to start camera overlay recording. Please try recording screen only."
+      );
+      setIsRecordingWebcam(false);
+      isRecordingWebcamRef.current = false;
+      return;
+    }
   };
 
   const startWebcamRecording = async () => {

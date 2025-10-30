@@ -543,7 +543,7 @@ function createWindow() {
       contextIsolation: true,
       sandbox: process.env.NODE_ENV === "production", // Enable sandbox in production for security
       nodeIntegration: false,
-      webSecurity: false, // Allow loading local video files
+      webSecurity: false, // Allow loading local video files (required for video editor)
     },
   });
 
@@ -608,6 +608,10 @@ function createWindow() {
     }
   });
 }
+
+// Future AI/API handlers (prepared for expansion)
+// Example: ipcMain.handle("transcribe-video", async (_, videoPath) => { ... })
+// These would handle secure API communications for AI features
 
 // IPC Handlers
 ipcMain.handle("open-file-dialog", async (_, options) => {
@@ -1357,14 +1361,6 @@ ipcMain.handle("mark-app-started", async () => {
   }
 });
 
-// Prevent multiple instances
-const gotTheLock = app.requestSingleInstanceLock();
-
-if (!gotTheLock) {
-  app.quit();
-  process.exit(0);
-}
-
 app.on("second-instance", () => {
   if (win) {
     if (win.isMinimized()) win.restore();
@@ -1385,8 +1381,33 @@ app.on("activate", () => {
   }
 });
 
+// Environment-specific setup
+if (!app.isPackaged) {
+  // Development: Use a different userData path to avoid conflicts with production
+  const devDataPath = path.join(app.getPath("appData"), "ClipForge-Dev");
+  app.setPath("userData", devDataPath);
+}
+
+// Prevent multiple instances
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  console.log(
+    "Another instance is already running. Focusing existing window..."
+  );
+  app.quit();
+}
+
+// Handle second instance - focus existing window
+app.on("second-instance", () => {
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+});
+
 // Configure auto-updater
-if (process.env.NODE_ENV === "production") {
+if (app.isPackaged) {
   autoUpdater.logger = console;
 
   autoUpdater.on("checking-for-update", () => {

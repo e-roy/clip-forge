@@ -13,9 +13,8 @@ Desktop video editor (Electron + React) to **import clips**, arrange on a **time
 - **Electron** (main/preload)
 - **React + TypeScript (strict)**, **Vite**, **TailwindCSS**, **shadcn/ui**
 - **State:** Zustand
-- **Media:** FFmpeg via `fluent-ffmpeg` + `@ffmpeg-installer/ffmpeg` (and ffprobe)
+- **Media:** FFmpeg via `ffmpeg-static` + `ffprobe-static` (and ffprobe)
 - **Packaging:** `electron-builder`
-- **Optional:** `keytar` for secure tokens
 
 ## File Structure
 
@@ -33,34 +32,41 @@ clipforge/
   src/
     app.tsx                 # app shell (sidebar, preview, timeline, topbar)
     main.tsx                # React entry
-    styles/
-      index.css             # Tailwind entry
+    index.css               # Tailwind entry
     types/                  # all shared TS types (no `any`)
       clip.ts
       timeline.ts
-      export.ts
       ipc.ts
     lib/                    # helper functions only
-      ffmpeg.ts             # command builders, paths
-      time.ts               # time/ticks/fps helpers
-      files.ts              # safe path ops
-      validation.ts
+      audio-registry.ts     # audio management utilities
+      files.ts              # safe path operations
+      timeline-helpers.ts   # timeline calculation helpers
+      useAudioMixer.ts      # audio mixing hook
+      useExport.ts          # export functionality hook
+      useKeyboardControls.ts # keyboard shortcuts hook
+      usePlayheadSync.ts    # playhead synchronization
+      useRecording.ts       # recording functionality hook
+      useVideoPlayback.ts   # video playback controls
+      utils.ts              # general utilities
     store/                  # Zustand slices
       clips.ts
+      project.ts
+      settings.ts
       timeline.ts
       ui.ts
-      export.ts
     components/
+      AppProvider.tsx       # main app provider
+      GlobalAlertDialog.tsx # global alert dialogs
+      Header.tsx            # app header component
       ui/                   # shadcn generated components
       library/              # media library pane
       timeline/             # track, item, ruler, playhead
       preview/              # <video> player + overlay layer
       recorder/             # screen/webcam controls
       export/               # export dialog + progress
-    features/
-      import/               # drag-drop, file picker integration
-      recording/            # MediaRecorder wiring (renderer)
-      metadata/             # probing pipeline glue
+      project/              # project management dialogs
+      recovery/             # project recovery dialogs
+      settings/             # settings dialogs
     assets/                 # static icons (no large media)
 ```
 
@@ -101,5 +107,5 @@ clipforge/
 ## Notes
 
 - Thumbnails/temp under `app.getPath('userData')/ClipForge`.
-- FFmpeg/ffprobe paths resolved from `@ffmpeg-installer/ffmpeg` in **main**.
+- FFmpeg/ffprobe paths resolved from `ffmpeg-static` and `ffprobe-static` in **main**.
 - Keep preview adjustments lightweight (CSS/WebAudio); do full fidelity in export filtergraphs.

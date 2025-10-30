@@ -62,7 +62,7 @@ export function SourceSelector({
                   </p>
                 </div>
               ) : (
-                <ScrollArea className="h-[51vh] px-4">
+                <ScrollArea className="h-[51vh] pr-4">
                   <div className="space-y-2">
                     {screenSources.map((source) => (
                       <button
@@ -112,7 +112,7 @@ export function SourceSelector({
                   </p>
                 </div>
               ) : (
-                <ScrollArea className="h-[51vh] px-4">
+                <ScrollArea className="h-[51vh] pr-4">
                   <div className="space-y-2">
                     {windowSources.map((source) => (
                       <button
@@ -128,7 +128,7 @@ export function SourceSelector({
                         <img
                           src={source.thumbnail}
                           alt={source.name}
-                          className="w-full h-auto rounded mb-1"
+                          className="h-auto rounded mb-1"
                         />
                         <p className="text-xs truncate text-left">
                           {source.name}
@@ -168,7 +168,7 @@ export function SourceSelector({
                   </div>
                 </div>
               ) : (
-                <ScrollArea className="h-[51vh] px-4">
+                <ScrollArea className="h-[51vh] pr-4">
                   <div className="space-y-2">
                     {cameraDevices.map((device) => (
                       <button

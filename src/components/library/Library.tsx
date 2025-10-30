@@ -17,8 +17,9 @@ export function Library() {
   const [isDragging, setIsDragging] = useState(false);
 
   const handleImport = async () => {
+    let paths: string[] = [];
     try {
-      const paths = await window.api.openFileDialog({
+      paths = await window.api.openFileDialog({
         filters: [{ name: "Media Files", extensions: ["mp4", "mov", "webm"] }],
       });
       if (paths.length === 0) return;

@@ -6,6 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -102,6 +103,7 @@ export function ExportDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Export Video</DialogTitle>
+          <DialogDescription> </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">

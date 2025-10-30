@@ -5,6 +5,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
@@ -105,6 +106,7 @@ export function ExportProgress({
             {status === "success" && "Export Complete"}
             {status === "error" && "Export Failed"}
           </DialogTitle>
+          <DialogDescription> </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
