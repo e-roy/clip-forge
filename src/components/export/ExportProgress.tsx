@@ -74,8 +74,11 @@ export function ExportProgress({
       }
     };
 
-    window.api.onExportProgress((data) => handleProgress(data));
-    window.api.onExportDone((result) => handleDone(result));
+    // Only set up listeners if API is available
+    if (window.api) {
+      window.api.onExportProgress((data) => handleProgress(data));
+      window.api.onExportDone((result) => handleDone(result));
+    }
   }, []);
 
   useEffect(() => {

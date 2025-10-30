@@ -541,7 +541,7 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, "preload.mjs"),
       contextIsolation: true,
-      sandbox: true,
+      sandbox: process.env.NODE_ENV === "production", // Enable sandbox in production for security
       nodeIntegration: false,
       webSecurity: false, // Allow loading local video files
     },

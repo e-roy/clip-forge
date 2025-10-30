@@ -1,5 +1,37 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { ElectronAPI } from "./types";
+
+// Define minimal types inline to avoid import issues
+interface ElectronAPI {
+  openFileDialog: (options?: any) => Promise<string[]>;
+  saveFileDialog: (options?: any) => Promise<string>;
+  getMediaInfo: (paths: string[]) => Promise<any[]>;
+  exportVideo: (payload: any) => Promise<{ jobId: string }>;
+  onExportProgress: (callback: (progress: any) => void) => void;
+  onExportDone: (callback: (result: any) => void) => void;
+  getAppVersion: () => Promise<string>;
+  getDesktopSources: () => Promise<any[]>;
+  writeRecordingFile: (data: ArrayBuffer, filename: string) => Promise<string>;
+  saveProject: (projectData: string) => Promise<any>;
+  loadProject: (projectPath: string) => Promise<any>;
+  getAutosavePath: () => Promise<string>;
+  listProjects: () => Promise<any[]>;
+  deleteAutosave: () => Promise<any>;
+  saveProjectAs: (projectData: string, filePath: string) => Promise<any>;
+  openProjectDialog: () => Promise<string | null>;
+  collectAssets: (projectPath: string, clipPaths: string[]) => Promise<any>;
+  createArchive: (projectPath: string, outputPath: string) => Promise<any>;
+  checkCrashRecovery: () => Promise<any>;
+  clearCrashFlag: () => Promise<void>;
+  markAppStarted: () => Promise<void>;
+  onTriggerNewProject: (callback: () => void) => void;
+  onTriggerOpenProject: (callback: () => void) => void;
+  onTriggerSave: (callback: () => void) => void;
+  onTriggerSaveAs: (callback: () => void) => void;
+  onTriggerImportMedia: (callback: () => void) => void;
+  onTriggerExport: (callback: () => void) => void;
+  onTriggerSettings: (callback: () => void) => void;
+  onTriggerDeleteSelected: (callback: () => void) => void;
+}
 
 const electronAPI: ElectronAPI = {
   openFileDialog: (options?) => ipcRenderer.invoke("open-file-dialog", options),
@@ -89,4 +121,15 @@ const electronAPI: ElectronAPI = {
   },
 };
 
-contextBridge.exposeInMainWorld("api", electronAPI);
+// Simple API exposure - try contextBridge first, fallback to direct assignment
+console.log("Preload script starting...");
+
+try {
+  contextBridge.exposeInMainWorld("api", electronAPI);
+  console.log("API exposed successfully via contextBridge");
+} catch (error) {
+  console.log("ContextBridge failed, using direct assignment");
+  (window as any).api = electronAPI;
+}
+
+console.log("Preload script completed");

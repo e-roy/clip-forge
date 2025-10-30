@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useSettingsStore } from "@/store/settings";
+import { useEffect, useState } from "react";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -15,6 +16,28 @@ interface SettingsDialogProps {
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const { theme, toggleTheme } = useSettingsStore();
+  const [appVersion, setAppVersion] = useState<string>("");
+  const [updateStatus, setUpdateStatus] = useState<string>("Checking...");
+  const [lastUpdateCheck, setLastUpdateCheck] = useState<string>("");
+
+  useEffect(() => {
+    // Get app version
+    if (window.api) {
+      window.api
+        .getAppVersion()
+        .then(setAppVersion)
+        .catch(() => setAppVersion("Unknown"));
+    }
+
+    // Set update status based on environment
+    if (process.env.NODE_ENV === "production") {
+      setUpdateStatus("Auto-updates enabled");
+      setLastUpdateCheck("Automatic checks every 3 seconds after launch");
+    } else {
+      setUpdateStatus("Development mode (no auto-updates)");
+      setLastUpdateCheck("Updates disabled in development");
+    }
+  }, []);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -48,6 +71,25 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   }`}
                 />
               </button>
+            </div>
+          </div>
+
+          <div className="border-t my-4" />
+
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium">About ClipForge</h3>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <div className="flex justify-between">
+                <span>Version:</span>
+                <span>{appVersion || "Loading..."}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Updates:</span>
+                <span>{updateStatus}</span>
+              </div>
+              <div className="text-xs text-muted-foreground mt-2">
+                {lastUpdateCheck}
+              </div>
             </div>
           </div>
         </div>
