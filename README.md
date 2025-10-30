@@ -157,9 +157,17 @@ The included `.github/workflows/build-release.yml` automatically builds for:
 3. Create a new git tag: `git tag v0.1.1`
 4. Push the tag: `git push origin v0.1.1`
 5. Create a GitHub release with that tag
-6. The workflow automatically builds and attaches installers to the release
+6. GitHub Actions automatically builds installers for Windows, macOS, and Linux
+7. Installers are automatically attached to the release
 
 **Important:** The workflow only runs on GitHub release creation, not on every push/merge to main.
+
+**What users get:**
+
+- **Windows:** `.exe` NSIS installer (run and install)
+- **macOS:** `.dmg` disk image (open and drag to Applications)
+- **Linux:** `.AppImage` (make executable and run)
+- **Auto-updates:** Apps check for updates and install automatically
 
 **Repository Secrets:**
 
@@ -294,6 +302,7 @@ No Node.js APIs are exposed to the renderer process.
 **ClipForge is currently in early development (v0.1.0).** While functional for basic video editing workflows, it may contain bugs or unexpected behavior. Always keep backups of your original video files.
 
 ### Known Limitations
+
 - Audio sync may have slight timing variations
 - Large video files may cause performance issues
 - Windows, macOS, and Linux builds available
@@ -301,11 +310,13 @@ No Node.js APIs are exposed to the renderer process.
 ## Contributing
 
 This project is open source! Feel free to:
+
 - Report bugs via GitHub Issues
 - Suggest features
 - Submit pull requests
 
 ### Development Setup
+
 See the "Getting Started" section above for local development instructions.
 
 ## License
