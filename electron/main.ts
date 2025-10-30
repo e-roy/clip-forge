@@ -41,13 +41,31 @@ let ffmpegPaths: { ffmpeg: string; ffprobe: string } | null = null;
 
 const setupFfmpeg = () => {
   if (!ffmpegPaths) {
-    const ffmpegPath = require("ffmpeg-static");
-    const ffprobePath = require("ffprobe-static");
+    try {
+      let ffmpegPath = require("ffmpeg-static");
+      let ffprobePath = require("ffprobe-static");
 
-    ffmpegPaths = {
-      ffmpeg: ffmpegPath,
-      ffprobe: typeof ffprobePath === "string" ? ffprobePath : ffprobePath.path,
-    };
+      // Handle packaged app paths
+      if (app.isPackaged) {
+        // In packaged apps, ffmpeg-static returns an object with a path property
+        if (typeof ffmpegPath === "object" && ffmpegPath.path) {
+          ffmpegPath = ffmpegPath.path;
+        }
+        if (typeof ffprobePath === "object" && ffprobePath.path) {
+          ffprobePath = ffprobePath.path;
+        }
+      }
+
+      ffmpegPaths = {
+        ffmpeg: ffmpegPath,
+        ffprobe: typeof ffprobePath === "string" ? ffprobePath : ffprobePath.path,
+      };
+
+      console.log("FFmpeg paths configured:", ffmpegPaths);
+    } catch (error) {
+      console.error("Failed to setup FFmpeg:", error);
+      throw error;
+    }
   }
   return ffmpegPaths;
 };
@@ -1382,10 +1400,19 @@ app.on("activate", () => {
 });
 
 // Environment-specific setup
+console.log("App environment:", app.isPackaged ? "production" : "development");
+console.log("App data paths:");
+console.log("- appData:", app.getPath("appData"));
+console.log("- userData:", app.getPath("userData"));
+console.log("- temp:", app.getPath("temp"));
+
 if (!app.isPackaged) {
   // Development: Use a different userData path to avoid conflicts with production
   const devDataPath = path.join(app.getPath("appData"), "ClipForge-Dev");
   app.setPath("userData", devDataPath);
+  console.log("Development mode: Using data path:", devDataPath);
+} else {
+  console.log("Production mode: Using data path:", app.getPath("userData"));
 }
 
 // Prevent multiple instances
