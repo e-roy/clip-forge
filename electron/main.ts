@@ -58,7 +58,8 @@ const setupFfmpeg = () => {
 
       ffmpegPaths = {
         ffmpeg: ffmpegPath,
-        ffprobe: typeof ffprobePath === "string" ? ffprobePath : ffprobePath.path,
+        ffprobe:
+          typeof ffprobePath === "string" ? ffprobePath : ffprobePath.path,
       };
 
       console.log("FFmpeg paths configured:", ffmpegPaths);

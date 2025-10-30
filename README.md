@@ -180,6 +180,15 @@ The workflow needs `contents: write` permission to attach files to releases (aut
 3. Users download and install from releases
 4. Future updates are delivered automatically via electron-updater
 
+## Security Warnings
+
+**Development builds show security warnings** - this is normal and safe:
+
+- **Windows:** SmartScreen may block unknown apps → Click "Run anyway"
+- **macOS:** Gatekeeper may block unsigned apps → Right-click → "Open"
+
+**Production releases** will be code-signed for distribution without warnings.
+
 ## Available Scripts
 
 - `npm run dev` - Start development server with hot reload

@@ -50,6 +50,11 @@ jobs:
         env:
           EP_PUBLISH: false # Explicitly disable publishing
           PUBLISH_FOR_TAG: false # Override tag-based publishing
+          # Code signing and notarization (optional - requires certificates)
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

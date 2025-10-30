@@ -14,8 +14,10 @@
     "node_modules/ffprobe-static/**/*",
   ],
   publish: {
-    provider: "generic",
-    url: "https://example.com/dummy", // Dummy URL to prevent real publishing
+    provider: "github",
+    owner: "e-roy",
+    repo: "clip-forge",
+    private: false,
   },
   mac: {
     target: [
@@ -26,10 +28,17 @@
     ],
     artifactName: "${productName}-Mac-${version}-Installer.${ext}",
     minimumSystemVersion: "10.13",
-    hardenedRuntime: false, // Disable hardened runtime for development
-    entitlements: null, // No entitlements file
-    entitlementsInherit: null, // No inherited entitlements
-    identity: null, // Ad-hoc code signing
+    // Code signing and notarization (requires Apple Developer Program)
+    identity: "Developer ID Application: ClipForge (${env:APPLE_TEAM_ID})",
+    hardenedRuntime: true,
+    entitlements: "build/entitlements.mac.plist",
+    entitlementsInherit: "build/entitlements.mac.plist",
+    // Notarization (requires Apple Developer account)
+    notarize: {
+      teamId: "${env:APPLE_TEAM_ID}",
+      appleId: "${env:APPLE_ID}",
+      appleIdPassword: "${env:APPLE_APP_SPECIFIC_PASSWORD}",
+    },
   },
   win: {
     target: [
@@ -39,8 +48,10 @@
       },
     ],
     artifactName: "${productName}-Windows-${version}-Setup.${ext}",
-    signAndEditExecutable: false,
-    verifyUpdateCodeSignature: false,
+    // Code signing (requires certificate for production)
+    certificateFile: "certificates/windows.p12",
+    certificatePassword: "${env:WINDOWS_CERT_PASSWORD}",
+    signDlls: true,
   },
   nsis: {
     oneClick: false,
