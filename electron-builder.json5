@@ -33,12 +33,8 @@
     hardenedRuntime: true,
     entitlements: "build/entitlements.mac.plist",
     entitlementsInherit: "build/entitlements.mac.plist",
-    // Notarization (requires Apple Developer account)
-    notarize: {
-      teamId: "${env:APPLE_TEAM_ID}",
-      appleId: "${env:APPLE_ID}",
-      appleIdPassword: "${env:APPLE_APP_SPECIFIC_PASSWORD}",
-    },
+    // Enable notarization (config via environment variables)
+    notarize: true,
   },
   win: {
     target: [
@@ -48,10 +44,6 @@
       },
     ],
     artifactName: "${productName}-Windows-${version}-Setup.${ext}",
-    // Code signing (requires certificate for production)
-    certificateFile: "certificates/windows.p12",
-    certificatePassword: "${env:WINDOWS_CERT_PASSWORD}",
-    signDlls: true,
   },
   nsis: {
     oneClick: false,
