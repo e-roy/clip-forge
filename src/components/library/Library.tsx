@@ -19,15 +19,32 @@ export function Library() {
   const handleImport = async () => {
     let paths: string[] = [];
     try {
+      console.log("Opening file dialog...");
       paths = await window.api.openFileDialog({
         filters: [{ name: "Media Files", extensions: ["mp4", "mov", "webm"] }],
       });
+      console.log("Selected files:", paths.length);
       if (paths.length === 0) return;
 
+      console.log("Getting media info...");
       const metas = await window.api.getMediaInfo(paths);
-      addClips(metas);
+      console.log("Got metadata for", metas.length, "files");
+      if (metas.length > 0) {
+        console.log("Adding clips to library");
+        addClips(metas);
+      } else {
+        console.error("No valid media files found");
+        setAlertDialog(
+          "Import Issue",
+          "No valid media files were found in the selected files."
+        );
+      }
     } catch (error) {
       console.error("Import failed:", error);
+      setAlertDialog(
+        "Import Error",
+        `Failed to import files: ${error.message || "Unknown error"}. Please try again.`
+      );
     }
   };
 

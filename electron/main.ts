@@ -777,6 +777,12 @@ ipcMain.handle("get-media-info", async (_, filePaths: string[]) => {
         frameRate,
       });
     } catch (error) {
+      // Log error for debugging but continue with other files
+      console.error(
+        "Failed to process media file:",
+        path.basename(filePath),
+        String(error)
+      );
       // Continue with other files
     }
   }
