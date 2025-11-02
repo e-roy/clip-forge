@@ -11,8 +11,13 @@ import { Recorder } from "../recorder/Recorder";
 
 export function Library() {
   const { clips, addClips, removeClip } = useClipsStore();
-  const { setSelectedClipId, selectedClipId, recorderOpen, setRecorderOpen } =
-    useUIStore();
+  const {
+    setSelectedClipId,
+    selectedClipId,
+    recorderOpen,
+    setRecorderOpen,
+    setAlertDialog,
+  } = useUIStore();
   const { handleRecordingDone } = useRecording();
   const [isDragging, setIsDragging] = useState(false);
 
@@ -41,9 +46,10 @@ export function Library() {
       }
     } catch (error) {
       console.error("Import failed:", error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       setAlertDialog(
         "Import Error",
-        `Failed to import files: ${error.message || "Unknown error"}. Please try again.`
+        `Failed to import files: ${errorMessage || "Unknown error"}. Please try again.`
       );
     }
   };

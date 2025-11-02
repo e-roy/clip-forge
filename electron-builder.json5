@@ -10,8 +10,13 @@
   files: [
     "dist",
     "dist-electron",
-    "node_modules/ffmpeg-static/**/*",
-    "node_modules/ffprobe-static/**/*",
+    "package.json",
+  ],
+  // Critical: Exclude ffmpeg/ffprobe binaries from ASAR compression
+  // This keeps them as executable files in app.asar.unpacked
+  asarUnpack: [
+    "**/node_modules/ffmpeg-static/**/*",
+    "**/node_modules/ffprobe-static/**/*",
   ],
   publish: {
     provider: "github",
@@ -44,6 +49,10 @@
       },
     ],
     artifactName: "${productName}-Windows-${version}-Setup.${ext}",
+    // Disable code signing for local builds (prevents privilege errors)
+    // For signed builds, remove these and provide proper certificates
+    forceCodeSigning: false,
+    signAndEditExecutable: false,
   },
   nsis: {
     oneClick: false,

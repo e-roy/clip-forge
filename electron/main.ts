@@ -42,29 +42,91 @@ let ffmpegPaths: { ffmpeg: string; ffprobe: string } | null = null;
 const setupFfmpeg = () => {
   if (!ffmpegPaths) {
     try {
-      let ffmpegPath = require("ffmpeg-static");
-      let ffprobePath = require("ffprobe-static");
+      let ffmpegPath: string;
+      let ffprobePath: string;
 
-      // Handle packaged app paths
       if (app.isPackaged) {
-        // In packaged apps, ffmpeg-static returns an object with a path property
-        if (typeof ffmpegPath === "object" && ffmpegPath.path) {
-          ffmpegPath = ffmpegPath.path;
+        // In packaged apps, binaries are unpacked to app.asar.unpacked
+        // process.resourcesPath points to the resources directory
+        const unpackedPath = path.join(
+          process.resourcesPath,
+          "app.asar.unpacked",
+          "node_modules"
+        );
+
+        // Resolve ffmpeg-static
+        const ffmpegModule = require("ffmpeg-static");
+        const ffmpegRelativePath =
+          typeof ffmpegModule === "string"
+            ? ffmpegModule
+            : ffmpegModule.path || ffmpegModule;
+
+        // Extract the relative path from node_modules
+        const ffmpegMatch = ffmpegRelativePath.match(
+          /node_modules[\/\\](.+)$/
+        );
+        if (ffmpegMatch) {
+          ffmpegPath = path.join(unpackedPath, ffmpegMatch[1]);
+        } else {
+          ffmpegPath = ffmpegRelativePath;
         }
-        if (typeof ffprobePath === "object" && ffprobePath.path) {
-          ffprobePath = ffprobePath.path;
+
+        // Resolve ffprobe-static
+        const ffprobeModule = require("ffprobe-static");
+        const ffprobeRelativePath =
+          typeof ffprobeModule === "string"
+            ? ffprobeModule
+            : ffprobeModule.path || ffprobeModule;
+
+        const ffprobeMatch = ffprobeRelativePath.match(
+          /node_modules[\/\\](.+)$/
+        );
+        if (ffprobeMatch) {
+          ffprobePath = path.join(unpackedPath, ffprobeMatch[1]);
+        } else {
+          ffprobePath = ffprobeRelativePath;
         }
+
+        console.log("Production FFmpeg paths:");
+        console.log("- Resources path:", process.resourcesPath);
+        console.log("- Unpacked path:", unpackedPath);
+        console.log("- FFmpeg binary:", ffmpegPath);
+        console.log("- FFprobe binary:", ffprobePath);
+      } else {
+        // Development mode - use direct requires
+        const ffmpegModule = require("ffmpeg-static");
+        const ffprobeModule = require("ffprobe-static");
+
+        ffmpegPath =
+          typeof ffmpegModule === "string"
+            ? ffmpegModule
+            : ffmpegModule.path || ffmpegModule;
+        ffprobePath =
+          typeof ffprobeModule === "string"
+            ? ffprobeModule
+            : ffprobeModule.path || ffprobeModule;
+
+        console.log("Development FFmpeg paths:");
+        console.log("- FFmpeg binary:", ffmpegPath);
+        console.log("- FFprobe binary:", ffprobePath);
+      }
+
+      // Verify binaries exist
+      if (!require("fs").existsSync(ffmpegPath)) {
+        throw new Error(`FFmpeg binary not found at: ${ffmpegPath}`);
+      }
+      if (!require("fs").existsSync(ffprobePath)) {
+        throw new Error(`FFprobe binary not found at: ${ffprobePath}`);
       }
 
       ffmpegPaths = {
         ffmpeg: ffmpegPath,
-        ffprobe:
-          typeof ffprobePath === "string" ? ffprobePath : ffprobePath.path,
+        ffprobe: ffprobePath,
       };
 
-      console.log("FFmpeg paths configured:", ffmpegPaths);
+      console.log("✓ FFmpeg paths configured and verified");
     } catch (error) {
-      console.error("Failed to setup FFmpeg:", error);
+      console.error("❌ Failed to setup FFmpeg:", error);
       throw error;
     }
   }
@@ -670,19 +732,26 @@ ipcMain.handle("save-file-dialog", async (_, options) => {
 ipcMain.handle("get-media-info", async (_, filePaths: string[]) => {
   const clipsMetadata = [];
 
+  console.log(`📹 Processing ${filePaths.length} file(s) for media info...`);
+
   for (const filePath of filePaths) {
     try {
       // Validate path
       if (!filePath || typeof filePath !== "string") {
+        console.warn("⚠️ Invalid file path:", filePath);
         continue;
       }
+
+      console.log(`Processing: ${path.basename(filePath)}`);
 
       // Get file stats
       const stats = await fs.stat(filePath);
       const fileSize = stats.size;
+      console.log(`- File size: ${(fileSize / 1024 / 1024).toFixed(2)} MB`);
 
       // Get media metadata using ffprobe
       const metadata = await runFfprobe(filePath);
+      console.log(`- Successfully probed metadata`);
 
       // Extract video stream
       const videoStream = metadata.streams.find(
@@ -690,6 +759,9 @@ ipcMain.handle("get-media-info", async (_, filePaths: string[]) => {
       );
 
       if (!videoStream) {
+        console.warn(
+          `⚠️ No video stream found in ${path.basename(filePath)}, skipping`
+        );
         continue;
       }
 
@@ -742,6 +814,7 @@ ipcMain.handle("get-media-info", async (_, filePaths: string[]) => {
         const frameTime = duration < 5 ? duration * 0.2 : 2;
 
         await runFfmpeg([
+          "-y", // Overwrite output files without asking
           "-i",
           filePath,
           "-ss",
@@ -776,17 +849,21 @@ ipcMain.handle("get-media-info", async (_, filePaths: string[]) => {
         audioSampleRate,
         frameRate,
       });
+
+      console.log(`✓ Successfully processed ${path.basename(filePath)}`);
     } catch (error) {
-      // Log error for debugging but continue with other files
-      console.error(
-        "Failed to process media file:",
-        path.basename(filePath),
-        String(error)
-      );
+      // Log detailed error for debugging but continue with other files
+      console.error(`❌ Failed to process media file: ${path.basename(filePath)}`);
+      console.error(`   Full path: ${filePath}`);
+      console.error(`   Error:`, error);
+      if (error instanceof Error) {
+        console.error(`   Stack:`, error.stack);
+      }
       // Continue with other files
     }
   }
 
+  console.log(`✓ Processed ${clipsMetadata.length}/${filePaths.length} files successfully`);
   return clipsMetadata;
 });
 
